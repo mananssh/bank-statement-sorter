@@ -1,7 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  cacheComponents: true,
+  serverExternalPackages: ["better-sqlite3"],
+  experimental: {
+    serverActions: {
+      // Statement workbooks can be several MB
+      bodySizeLimit: "16mb",
+    },
+  },
 };
 
 export default nextConfig;
