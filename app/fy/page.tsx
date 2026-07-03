@@ -16,4 +16,5 @@ async function Redirector() {
   await connection();
   const today = new Date().toISOString().slice(0, 10);
   redirect(`/fy/${fyStartYear(today, fyStartMonth())}`);
+  return null;
 }
