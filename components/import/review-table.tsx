@@ -1,20 +1,23 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   bulkApplyAction,
+  bulkTagUntaggedAction,
   commitBatchAction,
   discardBatchAction,
+  setRowPartyAction,
   updateRowAction,
 } from "@/lib/actions/import";
 import { Badge, Button, Card, Input, Select, cx, type BadgeTone } from "@/components/ui";
 import { formatPaise } from "@/lib/domain/money";
-import type { CategoryRow, ImportRowRow } from "@/lib/db/types";
+import type { CategoryRow, Direction, ImportRowRow } from "@/lib/db/types";
 
 /**
  * The confirm/correct loop. Suggested categories show a source badge; edits
- * are saved per row as you go; "apply to same payee" fans a correction out to
- * sibling rows. Committing is a single transaction server-side.
+ * save per row as you go (so the batch is a resumable draft). Committing is
+ * blocked until nothing is untagged, and runs as a single transaction.
  */
 
 const SOURCE_TONE: Record<string, BadgeTone> = {
@@ -24,22 +27,43 @@ const SOURCE_TONE: Record<string, BadgeTone> = {
   seed: "warning",
 };
 
+// Which category types may apply to money-in vs money-out.
+const TYPES_FOR_DIRECTION: Record<Direction, string[]> = {
+  credit: ["income", "transfer"],
+  debit: ["expense", "investment", "transfer"],
+};
+
+const TYPE_LABEL: Record<string, string> = {
+  income: "Income",
+  expense: "Expenses",
+  investment: "Investments",
+  transfer: "Transfers",
+};
+
 export function ReviewTable({
   batchId,
   rows: initialRows,
   categories,
-  parties,
+  parties: initialParties,
 }: {
   batchId: number;
   rows: ImportRowRow[];
   categories: CategoryRow[];
   parties: Array<{ id: number; name: string }>;
 }) {
+  const router = useRouter();
   const [rows, setRows] = useState(initialRows);
+  const [parties, setParties] = useState(initialParties);
   const [onlyUntagged, setOnlyUntagged] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const catsByType = useMemo(() => {
+    const m: Record<string, CategoryRow[]> = {};
+    for (const c of categories) (m[c.type] ??= []).push(c);
+    return m;
+  }, [categories]);
 
   const stats = useMemo(() => {
     const parseErrors = rows.filter((r) => r.parse_error).length;
@@ -76,6 +100,17 @@ export function ReviewTable({
     });
   }
 
+  function setParty(row: ImportRowRow, name: string) {
+    startTransition(async () => {
+      const res = await setRowPartyAction(row.id, name);
+      const party = res.data ?? null;
+      patchRow(row.id, { user_party_id: party?.id ?? null });
+      if (party && !parties.some((p) => p.id === party.id)) {
+        setParties((prev) => [...prev, party].sort((a, b) => a.name.localeCompare(b.name)));
+      }
+    });
+  }
+
   function bulkApply(row: ImportRowRow) {
     const categoryId = row.user_category_id ?? row.suggested_category_id;
     if (!categoryId) return;
@@ -83,7 +118,6 @@ export function ReviewTable({
       const res = await bulkApplyAction(row.id, categoryId);
       if (res.ok && typeof res.data === "number") {
         setNotice(`Applied to ${res.data} row(s) with the same payee.`);
-        // Refresh local state to reflect the server-side bulk update.
         const key = payeeDisplay(row);
         setRows((prev) =>
           prev.map((r) => (payeeDisplay(r) === key ? { ...r, user_category_id: categoryId } : r)),
@@ -91,6 +125,29 @@ export function ReviewTable({
       }
     });
   }
+
+  function bulkTag(categoryId: number, type: string) {
+    const directions = type === "income" ? ["credit"] : type === "transfer" ? ["credit", "debit"] : ["debit"];
+    startTransition(async () => {
+      const res = await bulkTagUntaggedAction(batchId, categoryId);
+      if (res.ok) {
+        setRows((prev) =>
+          prev.map((r) =>
+            r.include === 1 &&
+            !r.parse_error &&
+            (r.user_category_id ?? r.suggested_category_id) === null &&
+            r.direction &&
+            directions.includes(r.direction)
+              ? { ...r, user_category_id: categoryId }
+              : r,
+          ),
+        );
+        setNotice(`Tagged ${res.data ?? 0} untagged ${TYPE_LABEL[type]?.toLowerCase() ?? ""} row(s).`);
+      }
+    });
+  }
+
+  const commitBlocked = stats.untagged > 0;
 
   return (
     <div className="space-y-3">
@@ -124,8 +181,12 @@ export function ReviewTable({
             >
               Discard
             </Button>
+            <Button variant="ghost" disabled={pending} onClick={() => router.push("/import")}>
+              Save &amp; finish later
+            </Button>
             <Button
-              disabled={pending}
+              disabled={pending || commitBlocked}
+              title={commitBlocked ? "Tag every row before committing" : undefined}
               onClick={() =>
                 startTransition(async () => {
                   const res = await commitBatchAction(batchId);
@@ -137,9 +198,53 @@ export function ReviewTable({
             </Button>
           </span>
         </div>
+
+        {/* Bulk "tag all untagged" pickers, one per type. */}
+        {stats.untagged > 0 ? (
+          <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-hairline pt-3 text-xs">
+            <span className="text-ink-muted">Tag all untagged as:</span>
+            {(["expense", "income", "investment"] as const).map((type) =>
+              catsByType[type]?.length ? (
+                <label key={type} className="flex items-center gap-1">
+                  <span className="text-ink-secondary">{TYPE_LABEL[type]}</span>
+                  <Select
+                    value=""
+                    disabled={pending}
+                    className="py-1 text-xs"
+                    onChange={(e) => {
+                      const id = Number(e.target.value);
+                      if (id) bulkTag(id, type);
+                      e.target.value = "";
+                    }}
+                  >
+                    <option value="">choose…</option>
+                    {catsByType[type].map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              ) : null,
+            )}
+          </div>
+        ) : null}
+
+        {commitBlocked ? (
+          <p className="mt-2 text-xs text-warning">
+            Commit is disabled until every row is tagged. Your edits are saved — you can leave and
+            resume this import anytime from the Import page.
+          </p>
+        ) : null}
         {error ? <p className="mt-2 text-sm text-danger">{error}</p> : null}
         {notice ? <p className="mt-2 text-sm text-success">{notice}</p> : null}
       </Card>
+
+      <datalist id="party-options">
+        {parties.map((p) => (
+          <option key={p.id} value={p.name} />
+        ))}
+      </datalist>
 
       <div className="overflow-x-auto rounded-xl border border-edge bg-surface">
         <table className="w-full border-collapse text-sm">
@@ -160,6 +265,7 @@ export function ReviewTable({
               const categoryId = row.user_category_id ?? row.suggested_category_id;
               const isDup = row.dup_status === "duplicate";
               const isUntagged = !row.parse_error && row.include === 1 && categoryId === null;
+              const allowedTypes = row.direction ? TYPES_FOR_DIRECTION[row.direction] : [];
               return (
                 <tr
                   key={row.id}
@@ -218,11 +324,17 @@ export function ReviewTable({
                           className={cx("w-44 py-1 text-xs", isUntagged && "border-warning")}
                         >
                           <option value="">⚠ Untagged</option>
-                          {categories.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
+                          {allowedTypes.map((type) =>
+                            catsByType[type]?.length ? (
+                              <optgroup key={type} label={TYPE_LABEL[type] ?? type}>
+                                {catsByType[type].map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.name}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            ) : null,
+                          )}
                         </Select>
                         {categoryId ? (
                           <button
@@ -236,8 +348,19 @@ export function ReviewTable({
                       </div>
                     ) : null}
                   </Tdc>
-                  <Tdc className="max-w-36 truncate text-xs text-ink-secondary">
-                    {partyName(row, parties)}
+                  <Tdc>
+                    {!row.parse_error ? (
+                      <Input
+                        list="party-options"
+                        defaultValue={partyName(row, parties)}
+                        placeholder="—"
+                        className="w-40 py-1 text-xs"
+                        onBlur={(e) => {
+                          const v = e.target.value.trim();
+                          if (v !== partyName(row, parties)) setParty(row, v);
+                        }}
+                      />
+                    ) : null}
                   </Tdc>
                   <Tdc>
                     {!row.parse_error ? (

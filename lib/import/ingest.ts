@@ -480,6 +480,56 @@ export function updateBatchRow(
   db().prepare(`UPDATE import_rows SET ${sets.join(", ")} WHERE id = @id`).run(params);
 }
 
+/**
+ * Set (or clear) a staged row's party by name, finding-or-creating the party.
+ * Returns the resolved party so the client can reflect it.
+ */
+export function setBatchRowParty(
+  rowId: number,
+  name: string | null,
+): { id: number; name: string } | null {
+  const conn = db();
+  const trimmed = (name ?? "").trim();
+  if (!trimmed) {
+    conn.prepare(`UPDATE import_rows SET user_party_id = NULL WHERE id = ?`).run(rowId);
+    return null;
+  }
+  const existing = conn
+    .prepare(`SELECT id, canonical_name FROM parties WHERE canonical_name = ?`)
+    .get(trimmed) as { id: number; canonical_name: string } | undefined;
+  const id =
+    existing?.id ??
+    Number(conn.prepare(`INSERT INTO parties (canonical_name) VALUES (?)`).run(trimmed).lastInsertRowid);
+  conn.prepare(`UPDATE import_rows SET user_party_id = ? WHERE id = ?`).run(id, rowId);
+  return { id, name: existing?.canonical_name ?? trimmed };
+}
+
+/**
+ * Tag every still-untagged, included row whose direction matches the chosen
+ * category's type (income→credit, expense/investment→debit) with that category.
+ * Powers the "tag all untagged expenses as …" bulk controls. Returns the count.
+ */
+export function bulkTagUntagged(batchId: number, categoryId: number): number {
+  const conn = db();
+  const cat = conn.prepare(`SELECT type FROM categories WHERE id = ?`).get(categoryId) as
+    | { type: string }
+    | undefined;
+  if (!cat) return 0;
+
+  const directions =
+    cat.type === "income" ? ["credit"] : cat.type === "transfer" ? ["credit", "debit"] : ["debit"];
+  const placeholders = directions.map(() => "?").join(", ");
+  const res = conn
+    .prepare(
+      `UPDATE import_rows SET user_category_id = ?
+       WHERE batch_id = ? AND include = 1 AND parse_error IS NULL
+         AND user_category_id IS NULL AND suggested_category_id IS NULL
+         AND direction IN (${placeholders})`,
+    )
+    .run(categoryId, batchId, ...directions);
+  return res.changes;
+}
+
 /** Apply a category to every stageable row in the batch sharing this row's payee key. */
 export function bulkApplyCategory(rowId: number, categoryId: number): number {
   const conn = db();
@@ -511,6 +561,14 @@ export interface CommitSummary {
   transfersDetected: number;
 }
 
+/** Thrown when a commit is attempted with untagged rows — message is user-safe. */
+export class CommitBlockedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CommitBlockedError";
+  }
+}
+
 /** Single-transaction commit: statement row, txns, learning, transfer scan. */
 export function commitBatch(batchId: number): CommitSummary {
   const conn = db();
@@ -521,6 +579,17 @@ export function commitBatch(batchId: number): CommitSummary {
   const accountId = batch.account_id;
   const rows = listBatchRows(batchId).filter((r) => !r.parse_error);
   const included = rows.filter((r) => r.include === 1 && r.txn_date);
+
+  // Every included row must be tagged before it can be committed — the review
+  // is not "done" until nothing is untagged (client blocks this too).
+  const untagged = included.filter(
+    (r) => (r.user_category_id ?? r.suggested_category_id) === null,
+  ).length;
+  if (untagged > 0) {
+    throw new CommitBlockedError(
+      `${untagged} transaction(s) are still untagged. Tag them (or use "Tag all untagged") before committing.`,
+    );
+  }
   const startMonth = fyStartMonth();
 
   const insertTxn = conn.prepare(

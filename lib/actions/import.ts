@@ -6,11 +6,14 @@ import { z } from "zod";
 import {
   analyzeSheet,
   bulkApplyCategory,
+  bulkTagUntagged,
+  CommitBlockedError,
   commitBatch,
   createBatch,
   discardBatch,
   listBatchSheets,
   setBatchPassword,
+  setBatchRowParty,
   stageBatch,
   updateBatchRow,
   type StageSummary,
@@ -119,6 +122,21 @@ export async function bulkApplyAction(
   return { ok: true, data: n };
 }
 
+export async function bulkTagUntaggedAction(
+  batchId: number,
+  categoryId: number,
+): Promise<ActionResult<number>> {
+  const n = bulkTagUntagged(batchId, categoryId);
+  return { ok: true, data: n };
+}
+
+export async function setRowPartyAction(
+  rowId: number,
+  name: string | null,
+): Promise<ActionResult<{ id: number; name: string } | null>> {
+  return { ok: true, data: setBatchRowParty(rowId, name) };
+}
+
 export async function commitBatchAction(batchId: number): Promise<ActionResult> {
   try {
     const summary = commitBatch(batchId);
@@ -129,6 +147,7 @@ export async function commitBatchAction(batchId: number): Promise<ActionResult> 
   } catch (e) {
     // redirect() throws internally — rethrow anything that is not a real error
     if (e && typeof e === "object" && "digest" in e) throw e;
+    if (e instanceof CommitBlockedError) return { ok: false, error: e.message };
     logError("import", e);
     return { ok: false, error: "Commit failed — nothing was written." };
   }
