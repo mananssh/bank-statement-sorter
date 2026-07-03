@@ -4,6 +4,8 @@ import { dataDir, dbPath } from "@/lib/config";
 import { getSetting } from "@/lib/repos/settings";
 import { passphraseIsSet } from "@/lib/security/session";
 import { GeneralSettingsForm, PassphraseForm } from "@/components/settings/settings-forms";
+import { BootstrapForms } from "@/components/settings/bootstrap-forms";
+import { listAccounts } from "@/lib/repos/lookups";
 import { Card, CardTitle } from "@/components/ui";
 
 export default function SettingsPage() {
@@ -26,6 +28,7 @@ async function Content() {
         currency={getSetting<string>("currency", "INR")}
       />
       <PassphraseForm isSet={passphraseIsSet()} />
+      <BootstrapForms accounts={listAccounts()} />
       <Card>
         <CardTitle>Data & privacy</CardTitle>
         <dl className="space-y-1.5 text-sm">
