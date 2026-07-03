@@ -69,18 +69,15 @@ export function ensureParty(
     .get(aliasKey) as { party_id: number } | undefined;
   if (existing) return existing.party_id;
 
+  // Identity is the alias key (UPI handle), NOT the display name — two distinct
+  // people can share a name, so never merge on name. Always create a new party
+  // for an unseen key; the user can merge parties manually if needed.
   const canonical = toTitleCase(normalizePayee(counterpartyRaw)) || counterpartyRaw.trim();
-  const byName = db
-    .prepare(`SELECT id FROM parties WHERE canonical_name = ?`)
-    .get(canonical) as { id: number } | undefined;
-
-  const partyId =
-    byName?.id ??
-    Number(
-      db
-        .prepare(`INSERT INTO parties (canonical_name, default_category_id) VALUES (?, ?)`)
-        .run(canonical, defaultCategoryId).lastInsertRowid,
-    );
+  const partyId = Number(
+    db
+      .prepare(`INSERT INTO parties (canonical_name, default_category_id) VALUES (?, ?)`)
+      .run(canonical, defaultCategoryId).lastInsertRowid,
+  );
 
   db.prepare(
     `INSERT INTO party_aliases (party_id, alias_key) VALUES (?, ?)

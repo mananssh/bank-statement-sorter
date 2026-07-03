@@ -35,7 +35,7 @@ export function listParties(): Array<PartyRow & { txn_count: number; aliases: st
       `SELECT p.*,
               (SELECT COUNT(*) FROM transactions t WHERE t.party_id = p.id) AS txn_count,
               (SELECT GROUP_CONCAT(alias_key, ', ') FROM party_aliases a WHERE a.party_id = p.id) AS aliases
-       FROM parties p ORDER BY p.canonical_name`,
+       FROM parties p ORDER BY txn_count DESC, p.canonical_name`,
     )
     .all() as Array<PartyRow & { txn_count: number; aliases: string }>;
 }

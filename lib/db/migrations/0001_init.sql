@@ -67,13 +67,17 @@ CREATE TABLE categories (
   sort_order INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
+-- Party identity is the UPI handle / alias key (see party_aliases), NOT the
+-- display name — two different people can share a name, so canonical_name is
+-- intentionally not unique.
 CREATE TABLE parties (
   id INTEGER PRIMARY KEY,
-  canonical_name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  canonical_name TEXT NOT NULL COLLATE NOCASE,
   default_category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
   notes TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 ) STRICT;
+CREATE INDEX idx_parties_name ON parties(canonical_name);
 
 CREATE TABLE party_aliases (
   id INTEGER PRIMARY KEY,

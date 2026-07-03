@@ -14,12 +14,23 @@ export function normalizePayee(name: string): string {
     .trim();
 }
 
+/**
+ * The stable part of a UPI id is what's before the "@" — the same handle
+ * (`manan04shah@okhdfcbank`, `manan04shah@ybl`) is the same person across PSPs.
+ * We key on that local-part so those never split into duplicate parties.
+ */
+export function vpaHandle(vpa: string): string {
+  const v = vpa.toLowerCase().trim();
+  const local = v.split("@")[0];
+  return local || v;
+}
+
 export function payeeKey(txn: {
   counterparty_vpa?: string | null;
   counterparty_raw?: string | null;
   narration?: string | null;
 }): string | null {
-  if (txn.counterparty_vpa) return txn.counterparty_vpa.toLowerCase().trim();
+  if (txn.counterparty_vpa) return vpaHandle(txn.counterparty_vpa);
   if (txn.counterparty_raw) {
     const norm = normalizePayee(txn.counterparty_raw);
     if (norm) return norm;
