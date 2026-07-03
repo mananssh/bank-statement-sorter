@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Nav } from "@/components/nav";
 import "./globals.css";
@@ -35,7 +36,9 @@ export default function RootLayout({
       <body className="min-h-full">
         <script dangerouslySetInnerHTML={{ __html: themeInit }} />
         <div className="flex min-h-screen">
-          <Nav />
+          <Suspense>
+            <Nav />
+          </Suspense>
           <main className="min-w-0 flex-1 px-6 py-5">{children}</main>
         </div>
       </body>

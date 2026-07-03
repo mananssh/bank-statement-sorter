@@ -8,16 +8,21 @@ import { SheetPicker } from "@/components/import/sheet-picker";
 import { MappingWizard } from "@/components/import/mapping-wizard";
 import { ReviewTable } from "@/components/import/review-table";
 
-export default async function BatchPage(props: PageProps<"/import/[batchId]">) {
-  const { batchId } = await props.params;
+export default function BatchPage(props: PageProps<"/import/[batchId]">) {
   return (
     <Suspense>
-      <BatchContent batchId={Number(batchId)} />
+      <BatchContent paramsPromise={props.params} />
     </Suspense>
   );
 }
 
-async function BatchContent({ batchId }: { batchId: number }) {
+async function BatchContent({
+  paramsPromise,
+}: {
+  paramsPromise: PageProps<"/import/[batchId]">["params"];
+}) {
+  const { batchId: batchIdStr } = await paramsPromise;
+  const batchId = Number(batchIdStr);
   await connection();
   const batch = getBatch(batchId);
   if (!batch || Number.isNaN(batchId)) notFound();

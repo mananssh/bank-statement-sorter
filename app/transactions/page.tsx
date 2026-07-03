@@ -11,11 +11,10 @@ import { TxnCategoryEditor } from "@/components/transactions/txn-inline-editor";
 
 const PAGE_SIZE = 100;
 
-export default async function TransactionsPage(props: PageProps<"/transactions">) {
-  const searchParams = await props.searchParams;
+export default function TransactionsPage(props: PageProps<"/transactions">) {
   return (
     <Suspense>
-      <TransactionsContent searchParams={searchParams} />
+      <TransactionsContent searchParamsPromise={props.searchParams} />
     </Suspense>
   );
 }
@@ -25,10 +24,11 @@ function str(v: string | string[] | undefined): string | undefined {
 }
 
 async function TransactionsContent({
-  searchParams,
+  searchParamsPromise,
 }: {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParamsPromise: PageProps<"/transactions">["searchParams"];
 }) {
+  const searchParams = await searchParamsPromise;
   await connection();
 
   const page = Number(str(searchParams.page) ?? "1") || 1;

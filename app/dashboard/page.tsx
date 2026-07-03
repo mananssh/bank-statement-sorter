@@ -19,17 +19,21 @@ import { CashflowChart } from "@/components/dashboard/cashflow-chart";
 import { CategoryDonut } from "@/components/dashboard/category-donut";
 import { TransferReview } from "@/components/dashboard/transfer-review";
 
-export default async function DashboardPage(props: PageProps<"/dashboard">) {
-  const searchParams = await props.searchParams;
-  const fyParam = typeof searchParams.fy === "string" ? Number(searchParams.fy) : undefined;
+export default function DashboardPage(props: PageProps<"/dashboard">) {
   return (
     <Suspense>
-      <DashboardContent fyParam={fyParam} />
+      <DashboardContent searchParamsPromise={props.searchParams} />
     </Suspense>
   );
 }
 
-async function DashboardContent({ fyParam }: { fyParam?: number }) {
+async function DashboardContent({
+  searchParamsPromise,
+}: {
+  searchParamsPromise: PageProps<"/dashboard">["searchParams"];
+}) {
+  const searchParams = await searchParamsPromise;
+  const fyParam = typeof searchParams.fy === "string" ? Number(searchParams.fy) : undefined;
   await connection();
 
   const startMonth = fyStartMonth();

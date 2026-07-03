@@ -14,18 +14,24 @@ import { Card, CardTitle, Table, Th, Td, EmptyState, cx } from "@/components/ui"
  * ledger in mastersheet column order, and the Consolidator-style summary —
  * plus one-click export of the whole FY workbook.
  */
-export default async function FyPage(props: PageProps<"/fy/[fy]">) {
-  const { fy } = await props.params;
-  const searchParams = await props.searchParams;
-  const month = typeof searchParams.month === "string" ? searchParams.month : undefined;
+export default function FyPage(props: PageProps<"/fy/[fy]">) {
   return (
     <Suspense>
-      <FyContent fyStr={fy} month={month} />
+      <FyContent paramsPromise={props.params} searchParamsPromise={props.searchParams} />
     </Suspense>
   );
 }
 
-async function FyContent({ fyStr, month }: { fyStr: string; month?: string }) {
+async function FyContent({
+  paramsPromise,
+  searchParamsPromise,
+}: {
+  paramsPromise: PageProps<"/fy/[fy]">["params"];
+  searchParamsPromise: PageProps<"/fy/[fy]">["searchParams"];
+}) {
+  const { fy: fyStr } = await paramsPromise;
+  const searchParams = await searchParamsPromise;
+  const month = typeof searchParams.month === "string" ? searchParams.month : undefined;
   await connection();
   const fy = Number(fyStr);
   if (!Number.isInteger(fy) || fy < 1990 || fy > 2100) notFound();
