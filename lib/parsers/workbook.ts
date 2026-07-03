@@ -5,7 +5,13 @@ import { isEncryptedWorkbook, decryptWorkbook } from "@/lib/parsers/decrypt";
 
 export interface OpenedWorkbook {
   sheetNames: string[];
+  /** Raw typed cells (numbers/dates preserved) — best for reliable amount parsing. */
   grid(sheetName: string): Grid;
+  /**
+   * Formatted display text, exactly what Excel shows. Used for the mapping
+   * preview and as a fallback when a raw "General"-formatted cell won't coerce.
+   */
+  formattedGrid(sheetName: string): string[][];
 }
 
 export class WorkbookPasswordRequiredError extends Error {
@@ -40,6 +46,16 @@ export async function openWorkbook(buffer: Buffer, password?: string): Promise<O
         header: 1,
         raw: true,
         defval: null,
+        blankrows: true,
+      });
+    },
+    formattedGrid(sheetName: string): string[][] {
+      const sheet = wb.Sheets[sheetName];
+      if (!sheet) return [];
+      return XLSX.utils.sheet_to_json<string[]>(sheet, {
+        header: 1,
+        raw: false, // formatted display strings
+        defval: "",
         blankrows: true,
       });
     },

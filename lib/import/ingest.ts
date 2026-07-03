@@ -146,7 +146,8 @@ export interface SheetAnalysis {
 export async function analyzeSheet(batchId: number, sheetName: string): Promise<SheetAnalysis> {
   const wb = await openBatchWorkbook(batchId);
   const grid = wb.grid(sheetName);
-  const preview = gridPreview(grid);
+  // Preview shows formatted text so dates read as "01/07/25", not serial 45748.
+  const preview = gridPreview(wb.formattedGrid(sheetName));
   const detection = detectHeader(grid);
 
   let matchedPreset: SheetAnalysis["matchedPreset"] = null;
@@ -214,6 +215,7 @@ export async function stageBatch(input: StageInput): Promise<StageSummary> {
 
   const wb = await openBatchWorkbook(input.batchId);
   const grid = wb.grid(batch.sheet_name);
+  const formatted = wb.formattedGrid(batch.sheet_name);
 
   const spec: MappingSpec = {
     statementKind: input.statementKind,
@@ -223,7 +225,7 @@ export async function stageBatch(input: StageInput): Promise<StageSummary> {
     amountStyle: input.amountStyle,
     narrationPlugin: input.narrationPlugin,
   };
-  const result = parseGrid(grid, spec);
+  const result = parseGrid(grid, spec, formatted);
   const conn = db();
   const warnings: string[] = [];
 

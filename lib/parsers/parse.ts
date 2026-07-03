@@ -17,33 +17,46 @@ import { getNarrationPlugin } from "@/lib/normalize/narration";
  * generic — institution specifics live in the mapping (saved preset) and the
  * narration plugin, so any bank's export parses through the same path.
  */
-export function parseGrid(grid: Grid, spec: MappingSpec): ParseResult {
+export function parseGrid(grid: Grid, spec: MappingSpec, formatted?: string[][]): ParseResult {
   return spec.statementKind === "mf_orders"
-    ? parseMfOrders(grid, spec)
-    : parseBankLike(grid, spec);
+    ? parseMfOrders(grid, spec, formatted)
+    : parseBankLike(grid, spec, formatted);
 }
 
-function parseBankLike(grid: Grid, spec: MappingSpec): ParseResult {
+/** True for a raw cell that carries no usable value (so we fall back to formatted text). */
+function isEmptyCell(v: unknown): boolean {
+  return v === null || v === undefined || (typeof v === "string" && v.trim() === "");
+}
+
+function parseBankLike(grid: Grid, spec: MappingSpec, formatted?: string[][]): ParseResult {
   const txns: CanonicalTxn[] = [];
   const issues: ParseIssue[] = [];
   const plugin = getNarrationPlugin(spec.narrationPlugin);
   const map = spec.columnMap;
 
-  const cell = (row: unknown[], field: keyof typeof map): unknown =>
-    map[field] !== undefined ? row[map[field]!] : undefined;
+  // Raw cell, falling back to the formatted display text when the raw value is
+  // empty — handles "General"-formatted cells that read back as blanks/typed
+  // text differently than their display.
+  const cell = (row: unknown[], field: keyof typeof map, r: number): unknown => {
+    if (map[field] === undefined) return undefined;
+    const raw = row[map[field]!];
+    if (!isEmptyCell(raw)) return raw;
+    const fmt = formatted?.[r]?.[map[field]!];
+    return fmt !== undefined && fmt !== "" ? fmt : raw;
+  };
 
   for (let r = spec.dataStartRow; r < grid.length; r++) {
     const row = grid[r];
     if (rowIsEmpty(row)) continue;
 
-    const rawDate = cell(row, "date");
-    const narration = cellToString(cell(row, "narration"));
+    const rawDate = cell(row, "date", r);
+    const narration = cellToString(cell(row, "narration", r));
 
     const amount = resolveAmount(spec.amountStyle, {
-      debit: cell(row, "debit"),
-      credit: cell(row, "credit"),
-      amount: cell(row, "amount"),
-      drcr: cell(row, "drcr"),
+      debit: cell(row, "debit", r),
+      credit: cell(row, "credit", r),
+      amount: cell(row, "amount", r),
+      drcr: cell(row, "drcr", r),
     });
 
     // Statement preamble/footer (bank header block, "Generated On …",
@@ -52,7 +65,14 @@ function parseBankLike(grid: Grid, spec: MappingSpec): ParseResult {
     // flagging it, since every bank's boilerplate differs. Only a row that
     // looks like a real transaction (has an amount) is worth surfacing when a
     // field fails to parse.
-    const txn_date = coerceDate(rawDate, { dayFirst: spec.dayFirst ?? true });
+    // Try the raw cell first, then the formatted display text (covers dates in
+    // "General"-formatted columns that read back ambiguously).
+    const dateColIdx = map.date;
+    const rawDateFmt =
+      dateColIdx !== undefined ? formatted?.[r]?.[dateColIdx] : undefined;
+    const txn_date =
+      coerceDate(rawDate, { dayFirst: spec.dayFirst ?? true }) ??
+      (rawDateFmt ? coerceDate(rawDateFmt, { dayFirst: spec.dayFirst ?? true }) : null);
     if (!txn_date) {
       if (amount && !isBoilerplate(row)) {
         issues.push({ row_no: r + 1, raw: row.slice(0, 10), error: "Unparseable date" });
@@ -68,7 +88,7 @@ function parseBankLike(grid: Grid, spec: MappingSpec): ParseResult {
       continue;
     }
 
-    const balanceRaw = cell(row, "balance");
+    const balanceRaw = cell(row, "balance", r);
     const balanceAbs =
       balanceRaw !== undefined && balanceRaw !== null ? parseAmountToPaise(balanceRaw as string | number) : null;
     // parseAmountToPaise returns absolute value; recover the sign for
@@ -84,7 +104,7 @@ function parseBankLike(grid: Grid, spec: MappingSpec): ParseResult {
       row_no: r + 1,
       txn_date,
       narration,
-      ref_number: cellToString(cell(row, "ref_number")) || null,
+      ref_number: cellToString(cell(row, "ref_number", r)) || null,
       direction: amount.direction,
       amount_paise: amount.amount_paise,
       balance_paise,
@@ -96,8 +116,8 @@ function parseBankLike(grid: Grid, spec: MappingSpec): ParseResult {
       parsed: {
         ...(extraction.ifsc ? { ifsc: extraction.ifsc } : {}),
         ...(extraction.cardLast4 ? { card_last4: extraction.cardLast4 } : {}),
-        ...(cellToString(cell(row, "value_date"))
-          ? { value_date: coerceDate(cell(row, "value_date"), { dayFirst: spec.dayFirst ?? true }) }
+        ...(cellToString(cell(row, "value_date", r))
+          ? { value_date: coerceDate(cell(row, "value_date", r), { dayFirst: spec.dayFirst ?? true }) }
           : {}),
       },
     });
@@ -116,23 +136,28 @@ function isBoilerplate(row: unknown[]): boolean {
   return BOILERPLATE_RE.test(joined);
 }
 
-function parseMfOrders(grid: Grid, spec: MappingSpec): ParseResult {
+function parseMfOrders(grid: Grid, spec: MappingSpec, formatted?: string[][]): ParseResult {
   const mfOrders: CanonicalMfOrder[] = [];
   const issues: ParseIssue[] = [];
   const map = spec.columnMap;
 
-  const cell = (row: unknown[], field: keyof typeof map): unknown =>
-    map[field] !== undefined ? row[map[field]!] : undefined;
+  const cell = (row: unknown[], field: keyof typeof map, r: number): unknown => {
+    if (map[field] === undefined) return undefined;
+    const raw = row[map[field]!];
+    if (!isEmptyCell(raw)) return raw;
+    const fmt = formatted?.[r]?.[map[field]!];
+    return fmt !== undefined && fmt !== "" ? fmt : raw;
+  };
 
   for (let r = spec.dataStartRow; r < grid.length; r++) {
     const row = grid[r];
     if (rowIsEmpty(row)) continue;
 
-    const order_date = coerceDate(cell(row, "order_date") ?? cell(row, "date"), {
+    const order_date = coerceDate(cell(row, "order_date", r) ?? cell(row, "date", r), {
       dayFirst: spec.dayFirst ?? true,
     });
-    const scheme_name = cellToString(cell(row, "scheme_name"));
-    const amountPaise = parseAmountToPaise(cell(row, "amount") as string | number);
+    const scheme_name = cellToString(cell(row, "scheme_name", r));
+    const amountPaise = parseAmountToPaise(cell(row, "amount", r) as string | number);
 
     // Order books interleave stamp-duty/charge rows that lack scheme/ISIN —
     // skip them silently rather than failing the import.
@@ -142,19 +167,19 @@ function parseMfOrders(grid: Grid, spec: MappingSpec): ParseResult {
       continue;
     }
 
-    const sideRaw = cellToString(cell(row, "side")).toLowerCase();
+    const sideRaw = cellToString(cell(row, "side", r)).toLowerCase();
     const side: "buy" | "sell" = /sell|redeem|redemption/.test(sideRaw) ? "sell" : "buy";
 
-    const unitsRaw = cellToString(cell(row, "units"));
-    const navRaw = cellToString(cell(row, "nav"));
+    const unitsRaw = cellToString(cell(row, "units", r));
+    const navRaw = cellToString(cell(row, "nav", r));
 
     mfOrders.push({
       row_no: r + 1,
-      order_no: cellToString(cell(row, "order_no")) || null,
+      order_no: cellToString(cell(row, "order_no", r)) || null,
       order_date,
-      isin: cellToString(cell(row, "isin")) || null,
+      isin: cellToString(cell(row, "isin", r)) || null,
       scheme_name,
-      folio: cellToString(cell(row, "folio")) || null,
+      folio: cellToString(cell(row, "folio", r)) || null,
       side,
       units: unitsRaw ? Math.abs(Number(unitsRaw.replace(/,/g, ""))) || null : null,
       nav: navRaw ? Number(navRaw.replace(/,/g, "")) || null : null,
