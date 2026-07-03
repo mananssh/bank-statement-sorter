@@ -13,10 +13,12 @@ export function fromPaise(paise: number): number {
 }
 
 /** Parse "1,23,456.78", "₹ 1,234.00", "1234.5 Cr" → paise (sign ignored; use the flag/columns for direction). */
-export function parseAmountToPaise(raw: string | number): number | null {
+export function parseAmountToPaise(raw: string | number | null | undefined): number | null {
+  if (raw === null || raw === undefined) return null;
   if (typeof raw === "number") {
     return Number.isFinite(raw) ? Math.abs(toPaise(raw)) : null;
   }
+  if (typeof raw !== "string") return null;
   const cleaned = raw
     .replace(/[₹$€£,\s]/g, "")
     .replace(/(dr|cr)\.?$/i, "")
