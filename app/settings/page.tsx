@@ -5,6 +5,9 @@ import { getSetting } from "@/lib/repos/settings";
 import { passphraseIsSet } from "@/lib/security/session";
 import { GeneralSettingsForm, PassphraseForm } from "@/components/settings/settings-forms";
 import { BootstrapForms } from "@/components/settings/bootstrap-forms";
+import { BackupManager } from "@/components/settings/backup-manager";
+import { listBackups } from "@/lib/db/autosave";
+import { pendingRestore } from "@/lib/db/restore";
 import { listAccounts } from "@/lib/repos/lookups";
 import { Card, CardTitle } from "@/components/ui";
 
@@ -29,6 +32,7 @@ async function Content() {
       />
       <PassphraseForm isSet={passphraseIsSet()} />
       <BootstrapForms accounts={listAccounts()} />
+      <BackupManager backups={listBackups()} hasPendingRestore={pendingRestore()} />
       <Card>
         <CardTitle>Data & privacy</CardTitle>
         <dl className="space-y-1.5 text-sm">
@@ -36,8 +40,8 @@ async function Content() {
           <Row label="Data directory" value={dataDir()} />
           <Row label="Network" value="Serves localhost only; zero external calls." />
           <Row
-            label="Backups"
-            value="Download a consistent DB snapshot from the link below (VACUUM INTO)."
+            label="Off-machine backup"
+            value="Download a consistent DB snapshot (VACUUM INTO) to store anywhere you like."
           />
         </dl>
         <a
