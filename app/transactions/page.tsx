@@ -8,6 +8,7 @@ import { fyLabel } from "@/lib/domain/fy";
 import { formatPaise } from "@/lib/domain/money";
 import { Badge, Table, Th, Td, EmptyState, cx } from "@/components/ui";
 import { TxnCategoryEditor } from "@/components/transactions/txn-inline-editor";
+import { ReimburseDialog } from "@/components/transactions/reimburse-dialog";
 
 const PAGE_SIZE = 100;
 
@@ -47,6 +48,9 @@ async function TransactionsContent({
   const { rows, total } = listTransactions(filters);
   const accounts = listAccounts();
   const categories = listCategories();
+  const nettableCategories = categories.filter(
+    (c) => c.type === "expense" || c.type === "investment",
+  );
   const fyYears = listFyYears();
   const startMonth = fyStartMonth();
   const imported = str(searchParams.imported);
@@ -172,11 +176,24 @@ async function TransactionsContent({
                   {t.is_transfer === 1 ? (
                     <Badge tone="transfer">transfer</Badge>
                   ) : (
-                    <TxnCategoryEditor
-                      txnId={t.id}
-                      categoryId={t.category_id}
-                      categories={categories}
-                    />
+                    <div className="flex items-center gap-1">
+                      <TxnCategoryEditor
+                        txnId={t.id}
+                        categoryId={t.category_id}
+                        direction={t.direction}
+                        categories={categories}
+                      />
+                      {t.direction === "credit" ? (
+                        <ReimburseDialog
+                          txnId={t.id}
+                          amountPaise={t.amount_paise}
+                          categoryId={t.category_id}
+                          display={t.party_name ?? t.counterparty_raw ?? t.narration}
+                          splitCount={t.split_count}
+                          categories={nettableCategories}
+                        />
+                      ) : null}
+                    </div>
                   )}
                 </Td>
                 <Td>

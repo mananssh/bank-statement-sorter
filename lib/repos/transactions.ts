@@ -21,6 +21,7 @@ export interface TxnListItem extends TransactionRow {
   category_name: string | null;
   category_type: string | null;
   party_name: string | null;
+  split_count: number;
 }
 
 function buildWhere(f: TxnFilters): { where: string; params: Record<string, unknown> } {
@@ -81,7 +82,8 @@ export function listTransactions(f: TxnFilters): { rows: TxnListItem[]; total: n
   const rows = db()
     .prepare(
       `SELECT t.*, a.name AS account_name, c.name AS category_name, c.type AS category_type,
-              p.canonical_name AS party_name
+              p.canonical_name AS party_name,
+              (SELECT COUNT(*) FROM txn_splits s WHERE s.txn_id = t.id) AS split_count
        FROM transactions t
        JOIN accounts a ON a.id = t.account_id
        LEFT JOIN categories c ON c.id = t.category_id
