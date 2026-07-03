@@ -39,29 +39,32 @@ function parseBankLike(grid: Grid, spec: MappingSpec): ParseResult {
     const rawDate = cell(row, "date");
     const narration = cellToString(cell(row, "narration"));
 
-    // Trailing junk (totals, "Opening Balance", legal footers) — skip rows
-    // with no parseable date; a run of them usually means the table ended.
-    const txn_date = coerceDate(rawDate, { dayFirst: spec.dayFirst ?? true });
-    if (!txn_date) {
-      if (narration || cellToString(rawDate)) {
-        const isNoise =
-          /^(opening|closing) balance/i.test(narration) ||
-          /statement|total|generated|page \d/i.test(narration);
-        if (!isNoise && narration) {
-          issues.push({ row_no: r + 1, raw: row.slice(0, 10), error: "Unparseable date" });
-        }
-      }
-      continue;
-    }
-
     const amount = resolveAmount(spec.amountStyle, {
       debit: cell(row, "debit"),
       credit: cell(row, "credit"),
       amount: cell(row, "amount"),
       drcr: cell(row, "drcr"),
     });
+
+    // Statement preamble/footer (bank header block, "Generated On …",
+    // GST/legal footers, opening/closing-balance lines, totals) carries no
+    // money in the mapped amount columns — drop it silently rather than
+    // flagging it, since every bank's boilerplate differs. Only a row that
+    // looks like a real transaction (has an amount) is worth surfacing when a
+    // field fails to parse.
+    const txn_date = coerceDate(rawDate, { dayFirst: spec.dayFirst ?? true });
+    if (!txn_date) {
+      if (amount && !isBoilerplate(row)) {
+        issues.push({ row_no: r + 1, raw: row.slice(0, 10), error: "Unparseable date" });
+      }
+      continue;
+    }
     if (!amount) {
-      issues.push({ row_no: r + 1, raw: row.slice(0, 10), error: "No parseable amount" });
+      // Dated row with no amount and not obvious boilerplate — likely a real
+      // parse problem (wrong amount column) worth showing.
+      if (!isBoilerplate(row)) {
+        issues.push({ row_no: r + 1, raw: row.slice(0, 10), error: "No parseable amount" });
+      }
       continue;
     }
 
@@ -101,6 +104,16 @@ function parseBankLike(grid: Grid, spec: MappingSpec): ParseResult {
   }
 
   return { txns, mfOrders: [], issues };
+}
+
+const BOILERPLATE_RE =
+  /\b(generated on|statement of account|opening balance|closing balance|account (no|number|branch)|customer id|ifsc|micr|gstn?|nominee|page \d|total (debit|credit|amount)?|grand total|registered office|this is a (computer|system)|end of statement|branch code)\b/i;
+
+/** True when a row is statement preamble/footer rather than a transaction. */
+function isBoilerplate(row: unknown[]): boolean {
+  const joined = row.map(cellToString).join(" ").trim();
+  if (joined === "") return true;
+  return BOILERPLATE_RE.test(joined);
 }
 
 function parseMfOrders(grid: Grid, spec: MappingSpec): ParseResult {
