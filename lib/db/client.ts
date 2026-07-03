@@ -3,6 +3,7 @@ import DatabaseConstructor, { type Database } from "better-sqlite3";
 import { dbPath } from "@/lib/config";
 import { migrate } from "@/lib/db/migrate";
 import { ensureBuiltinPresets } from "@/lib/parsers/builtin-presets";
+import { ensureSeedData } from "@/lib/categorize/seeds";
 
 // Singleton on globalThis so dev HMR doesn't leak connections.
 const globalForDb = globalThis as unknown as { __ssDb?: Database };
@@ -16,6 +17,7 @@ export function db(): Database {
     conn.pragma("busy_timeout = 5000");
     migrate(conn);
     ensureBuiltinPresets(conn);
+    ensureSeedData(conn);
     globalForDb.__ssDb = conn;
   }
   return globalForDb.__ssDb;
