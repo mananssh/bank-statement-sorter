@@ -85,6 +85,7 @@ async function RecentActivity() {
                 <Th>Period</Th>
                 <Th className="text-right">Rows</Th>
                 <Th className="text-right">Debits</Th>
+                <Th />
               </tr>
             </thead>
             <tbody>
@@ -104,6 +105,15 @@ async function RecentActivity() {
                     ) : null}
                   </Td>
                   <Td className="text-right tnum text-debit">{formatPaise(s.debits)}</Td>
+                  <Td>
+                    <a
+                      href={`/api/export/statement/${s.id}`}
+                      className="text-xs text-accent hover:underline"
+                      title="Download enriched sheet (original columns + Account/Party/Description)"
+                    >
+                      enriched ⬇
+                    </a>
+                  </Td>
                 </tr>
               ))}
             </tbody>
