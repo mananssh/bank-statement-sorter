@@ -2,6 +2,7 @@ import "server-only";
 import DatabaseConstructor, { type Database } from "better-sqlite3";
 import { dbPath } from "@/lib/config";
 import { migrate } from "@/lib/db/migrate";
+import { applyPendingRestore } from "@/lib/db/restore";
 import { ensureBuiltinPresets } from "@/lib/parsers/builtin-presets";
 import { ensureSeedData } from "@/lib/categorize/seeds";
 
@@ -10,6 +11,7 @@ const globalForDb = globalThis as unknown as { __ssDb?: Database };
 
 export function db(): Database {
   if (!globalForDb.__ssDb) {
+    applyPendingRestore();
     const conn = new DatabaseConstructor(dbPath());
     conn.pragma("journal_mode = WAL");
     conn.pragma("foreign_keys = ON");

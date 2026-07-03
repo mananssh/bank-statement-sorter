@@ -31,7 +31,12 @@ and narration plugins (`lib/normalize/narration.ts`). See README for architectur
   `YYYY-MM-DD` TEXT. Display via `lib/domain/money.ts`.
 - SQLite via the `db()` singleton (`lib/db/client.ts`) only — never open a
   second connection. Schema changes = a new numbered file in
-  `lib/db/migrations/`; never edit an applied migration.
+  `lib/db/migrations/`; never edit an applied migration. **Never delete or
+  recreate the user's database for a schema change** — user data must survive
+  every upgrade (the pre-release 0001-editing era is over). Autosave keeps
+  rotating snapshots in `data/backups/` (`lib/db/autosave.ts`, started from
+  `instrumentation.ts`); restores are staged via `lib/db/restore.ts` and
+  applied by the client before open.
 - Dedup: whole-file sha256 on `statements`, row hash via
   `lib/domain/dedup.ts` with `UNIQUE(account_id, dedup_hash, dupe_seq)`.
 - Transfers (`is_transfer` / category type `transfer`) are excluded from all
