@@ -27,9 +27,11 @@ const SOURCE_TONE: Record<string, BadgeTone> = {
   seed: "warning",
 };
 
-// Which category types may apply to money-in vs money-out.
+// Which category types may apply to money-in vs money-out. Money-in can carry
+// an expense/investment head too — that's a payback, and it NETS against the
+// head instead of counting as income (soft reimbursement model).
 const TYPES_FOR_DIRECTION: Record<Direction, string[]> = {
-  credit: ["income", "transfer"],
+  credit: ["income", "transfer", "expense", "investment"],
   debit: ["expense", "investment", "transfer"],
 };
 
@@ -39,6 +41,14 @@ const TYPE_LABEL: Record<string, string> = {
   investment: "Investments",
   transfer: "Transfers",
 };
+
+/** Optgroup label, contextualized: expense heads on a credit are paybacks. */
+function groupLabel(type: string, direction: Direction | null): string {
+  if (direction === "credit" && (type === "expense" || type === "investment")) {
+    return `↩ Payback → ${TYPE_LABEL[type]}`;
+  }
+  return TYPE_LABEL[type] ?? type;
+}
 
 export function ReviewTable({
   batchId,
@@ -326,7 +336,7 @@ export function ReviewTable({
                           <option value="">⚠ Untagged</option>
                           {allowedTypes.map((type) =>
                             catsByType[type]?.length ? (
-                              <optgroup key={type} label={TYPE_LABEL[type] ?? type}>
+                              <optgroup key={type} label={groupLabel(type, row.direction)}>
                                 {catsByType[type].map((c) => (
                                   <option key={c.id} value={c.id}>
                                     {c.name}
