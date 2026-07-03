@@ -20,6 +20,18 @@ export function seriesColorFor(id: number): string {
   return SERIES_VARS[Math.abs(id * 2654435761) % SERIES_VARS.length];
 }
 
+/**
+ * Distinct colors for a set of slices in one view (donut + its table). Assigns
+ * by position so adjacent slices never collide; wraps only past 8 entries
+ * (callers cap at 7 + "Other"). Returns a stable id → color map so the donut
+ * and the table beside it always agree.
+ */
+export function assignSliceColors(ids: number[]): Map<number, string> {
+  const map = new Map<number, string>();
+  ids.forEach((id, i) => map.set(id, SERIES_VARS[i % SERIES_VARS.length]));
+  return map;
+}
+
 export function directionColor(direction: "debit" | "credit"): string {
   return direction === "credit" ? "var(--credit)" : "var(--debit)";
 }

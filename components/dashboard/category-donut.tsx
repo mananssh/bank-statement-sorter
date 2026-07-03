@@ -2,41 +2,28 @@
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { formatPaise } from "@/lib/domain/money";
-import { seriesColorFor } from "@/lib/ui/colors";
 
-export interface DonutSlice {
-  category_id: number;
+export interface DonutDatum {
+  id: number;
   name: string;
-  value_paise: number;
+  value: number; // rupees
+  color: string;
 }
 
 /**
- * Expense breakdown. Top 7 categories + "Other"; identity is carried by the
- * adjacent category table (same colors) so sub-3:1 slices are never
- * color-alone — the relief rule from the palette validation.
+ * Generic donut. Colors are supplied by the caller (distinct per slice) so the
+ * donut and the table beside it share one assignment — identity is never
+ * color-alone because the table repeats the swatch + label.
  */
-export function CategoryDonut({ slices, total_paise }: { slices: DonutSlice[]; total_paise: number }) {
-  const top = slices.slice(0, 7);
-  const rest = slices.slice(7);
-  const data = [
-    ...top.map((s) => ({
-      id: s.category_id,
-      name: s.name,
-      value: s.value_paise / 100,
-      color: seriesColorFor(s.category_id),
-    })),
-    ...(rest.length
-      ? [
-          {
-            id: -1,
-            name: "Other",
-            value: rest.reduce((sum, s) => sum + s.value_paise, 0) / 100,
-            color: "var(--ink-muted)",
-          },
-        ]
-      : []),
-  ];
-
+export function CategoryDonut({
+  data,
+  centerLabel,
+  centerValuePaise,
+}: {
+  data: DonutDatum[];
+  centerLabel: string;
+  centerValuePaise: number;
+}) {
   return (
     <div className="relative h-56">
       <ResponsiveContainer width="100%" height="100%">
@@ -68,8 +55,10 @@ export function CategoryDonut({ slices, total_paise }: { slices: DonutSlice[]; t
         </PieChart>
       </ResponsiveContainer>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-[10px] uppercase tracking-wider text-ink-muted">Expenses</span>
-        <span className="text-lg font-semibold tnum">{formatPaise(total_paise, { compact: true })}</span>
+        <span className="text-[10px] uppercase tracking-wider text-ink-muted">{centerLabel}</span>
+        <span className="text-lg font-semibold tnum">
+          {formatPaise(centerValuePaise, { compact: true })}
+        </span>
       </div>
     </div>
   );

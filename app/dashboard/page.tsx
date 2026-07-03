@@ -13,10 +13,9 @@ import { listFyYears } from "@/lib/repos/lookups";
 import { fyStartMonth } from "@/lib/repos/settings";
 import { fyDateRange, fyLabel, fyStartYear as fyOf } from "@/lib/domain/fy";
 import { formatPaise } from "@/lib/domain/money";
-import { seriesColorFor } from "@/lib/ui/colors";
-import { Card, CardTitle, EmptyState, Table, Th, Td, cx } from "@/components/ui";
+import { Card, CardTitle, EmptyState, cx } from "@/components/ui";
 import { CashflowChart } from "@/components/dashboard/cashflow-chart";
-import { CategoryDonut } from "@/components/dashboard/category-donut";
+import { CategoryBreakdown, type BreakdownRow } from "@/components/dashboard/category-breakdown";
 import { TransferReview } from "@/components/dashboard/transfer-review";
 
 export default function DashboardPage(props: PageProps<"/dashboard">) {
@@ -47,10 +46,35 @@ async function DashboardContent({
   const kpi = kpiSummary(from, to);
   const monthly = monthlyRollup(from, to);
   const byCategory = categoryRollup(from, to);
-  const expenses = byCategory.filter((c) => c.category_type === "expense");
   const balances = accountBalances();
   const transfers = pendingTransferLinks();
   const recurring = recurringPayees(from, to);
+
+  const groupRows = (type: "expense" | "income" | "investment"): BreakdownRow[] => {
+    const g = byCategory.filter((c) => c.category_type === type);
+    const groupTotal = g.reduce((s, c) => s + c.total_paise, 0);
+    return g.map((c) => ({
+      category_id: c.category_id,
+      category_name: c.category_name,
+      category_type: c.category_type,
+      total_paise: c.total_paise,
+      pct: groupTotal > 0 ? c.total_paise / groupTotal : null,
+      txn_count: c.txn_count,
+      avg_paise: c.avg_paise,
+      largest_paise: c.largest_paise,
+      last_date: c.last_date,
+    }));
+  };
+  const breakdownGroups = {
+    expense: groupRows("expense"),
+    income: groupRows("income"),
+    investment: groupRows("investment"),
+  };
+  const breakdownTotals = {
+    expense: kpi.expense_paise,
+    income: kpi.income_paise,
+    investment: kpi.investment_paise,
+  };
 
   const hasData = kpi.txn_count > 0;
 
@@ -116,88 +140,24 @@ async function DashboardContent({
               <CashflowChart data={monthly} />
             </Card>
             <Card>
-              <CardTitle>Where it went</CardTitle>
-              {expenses.length ? (
-                <CategoryDonut
-                  slices={expenses.map((e) => ({
-                    category_id: e.category_id,
-                    name: e.category_name,
-                    value_paise: e.total_paise,
-                  }))}
-                  total_paise={kpi.expense_paise}
-                />
-              ) : (
-                <p className="text-sm text-ink-muted">No categorized expenses yet.</p>
-              )}
+              <CardTitle>Accounts</CardTitle>
+              <ul className="space-y-1.5 text-sm">
+                {balances.map((a) => (
+                  <li key={a.account_id} className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-ink-secondary">{a.account_name}</span>
+                    <span className="tnum font-medium">
+                      {a.last_balance_paise !== null ? formatPaise(a.last_balance_paise) : "—"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </Card>
           </div>
 
-          <div className="grid gap-3 xl:grid-cols-3">
-            <Card className="xl:col-span-2">
-              <CardTitle>Category breakdown</CardTitle>
-              <Table className="border-0">
-                <thead>
-                  <tr>
-                    <Th>Category</Th>
-                    <Th className="text-right">Total</Th>
-                    <Th className="text-right">% of expense</Th>
-                    <Th className="text-right">Txns</Th>
-                    <Th className="text-right">Avg</Th>
-                    <Th className="text-right">Largest</Th>
-                    <Th>Last</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {byCategory.map((c) => (
-                    <tr key={c.category_id}>
-                      <Td>
-                        <span className="flex items-center gap-2">
-                          <span
-                            className="inline-block h-2.5 w-2.5 rounded-sm"
-                            style={{
-                              background:
-                                c.category_type === "expense"
-                                  ? seriesColorFor(c.category_id)
-                                  : "var(--ink-muted)",
-                            }}
-                          />
-                          <Link
-                            href={`/transactions?fy=${fy}&category=${c.category_id}`}
-                            className="font-medium hover:text-accent"
-                          >
-                            {c.category_name}
-                          </Link>
-                        </span>
-                      </Td>
-                      <Td className="text-right tnum font-medium">{formatPaise(c.total_paise)}</Td>
-                      <Td className="text-right tnum text-ink-secondary">
-                        {c.pct_of_expense !== null ? `${(c.pct_of_expense * 100).toFixed(1)}%` : "—"}
-                      </Td>
-                      <Td className="text-right tnum">{c.txn_count}</Td>
-                      <Td className="text-right tnum text-ink-secondary">{formatPaise(c.avg_paise)}</Td>
-                      <Td className="text-right tnum text-ink-secondary">{formatPaise(c.largest_paise)}</Td>
-                      <Td className="whitespace-nowrap text-xs text-ink-muted">{c.last_date}</Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Card>
+          <CategoryBreakdown fy={fy} groups={breakdownGroups} totals={breakdownTotals} />
 
-            <div className="space-y-3">
-              <Card>
-                <CardTitle>Accounts</CardTitle>
-                <ul className="space-y-1.5 text-sm">
-                  {balances.map((a) => (
-                    <li key={a.account_id} className="flex items-baseline justify-between gap-2">
-                      <span className="truncate text-ink-secondary">{a.account_name}</span>
-                      <span className="tnum font-medium">
-                        {a.last_balance_paise !== null ? formatPaise(a.last_balance_paise) : "—"}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </Card>
-
+          {transfers.length > 0 || recurring.length > 0 ? (
+            <div className="grid gap-3 xl:grid-cols-2">
               {transfers.length > 0 ? (
                 <Card>
                   <CardTitle>Possible transfers ({transfers.length})</CardTitle>
@@ -222,7 +182,7 @@ async function DashboardContent({
                 </Card>
               ) : null}
             </div>
-          </div>
+          ) : null}
         </>
       )}
     </div>
