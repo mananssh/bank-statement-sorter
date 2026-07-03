@@ -5,9 +5,29 @@ import { db } from "@/lib/db/client";
  * All dashboard/export rollups. Transfer-linked and transfer-category rows are
  * excluded from income/expense so CC bill payments never double-count.
  * "Range" is any [from, to] ISO date pair (an FY, a month, or custom).
+ *
+ * Netting: a payback tagged to an expense head SUBTRACTS from it (expense =
+ * debits − credits; income = credits − debits), so friend reimbursements
+ * nullify the original spend instead of ever counting as income. `contrib`
+ * expands split transactions (txn_splits) into per-category portions; a txn
+ * without splits contributes its own category/amount unchanged.
  */
 
-const NON_TRANSFER = `t.is_transfer = 0 AND (c.type IS NULL OR c.type != 'transfer')`;
+const CONTRIB = `
+  contrib AS (
+    SELECT t.id AS txn_id, t.txn_date, t.month, t.direction, t.is_transfer,
+           COALESCE(s.category_id, t.category_id) AS category_id,
+           COALESCE(s.amount_paise, t.amount_paise) AS amount_paise
+    FROM transactions t LEFT JOIN txn_splits s ON s.txn_id = t.id
+    WHERE t.txn_date BETWEEN @from AND @to
+  )`;
+
+// Positive when the money moves the category's "natural" way (income←credit,
+// expense/investment←debit); negative for paybacks/reversals — the netting.
+const SIGNED = `CASE WHEN (c.type = 'income') = (contrib.direction = 'credit')
+                     THEN contrib.amount_paise ELSE -contrib.amount_paise END`;
+
+const NON_TRANSFER = `contrib.is_transfer = 0 AND (c.type IS NULL OR c.type != 'transfer')`;
 
 export interface KpiSummary {
   income_paise: number;
@@ -22,16 +42,17 @@ export interface KpiSummary {
 export function kpiSummary(from: string, to: string): KpiSummary {
   const row = db()
     .prepare(
-      `SELECT
-         COALESCE(SUM(CASE WHEN c.type = 'income' AND t.direction = 'credit' THEN t.amount_paise END), 0) AS income,
-         COALESCE(SUM(CASE WHEN c.type = 'expense' AND t.direction = 'debit' THEN t.amount_paise END), 0) AS expense,
-         COALESCE(SUM(CASE WHEN c.type = 'investment' AND t.direction = 'debit' THEN t.amount_paise END), 0) AS investment,
-         COUNT(*) AS txn_count,
-         SUM(CASE WHEN t.category_id IS NULL THEN 1 ELSE 0 END) AS untagged
-       FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
-       WHERE t.txn_date BETWEEN ? AND ? AND ${NON_TRANSFER}`,
+      `WITH ${CONTRIB}
+       SELECT
+         COALESCE(SUM(CASE WHEN c.type = 'income' THEN ${SIGNED} END), 0) AS income,
+         COALESCE(SUM(CASE WHEN c.type = 'expense' THEN ${SIGNED} END), 0) AS expense,
+         COALESCE(SUM(CASE WHEN c.type = 'investment' THEN ${SIGNED} END), 0) AS investment,
+         COUNT(DISTINCT contrib.txn_id) AS txn_count,
+         COUNT(DISTINCT CASE WHEN contrib.category_id IS NULL THEN contrib.txn_id END) AS untagged
+       FROM contrib LEFT JOIN categories c ON c.id = contrib.category_id
+       WHERE ${NON_TRANSFER}`,
     )
-    .get(from, to) as {
+    .get({ from, to }) as {
     income: number;
     expense: number;
     investment: number;
@@ -63,15 +84,16 @@ export interface MonthlyRollupRow {
 export function monthlyRollup(from: string, to: string): MonthlyRollupRow[] {
   const rows = db()
     .prepare(
-      `SELECT t.month,
-         COALESCE(SUM(CASE WHEN c.type = 'income' AND t.direction = 'credit' THEN t.amount_paise END), 0) AS credits,
-         COALESCE(SUM(CASE WHEN c.type = 'expense' AND t.direction = 'debit' THEN t.amount_paise END), 0) AS debits,
-         COALESCE(SUM(CASE WHEN c.type = 'investment' AND t.direction = 'debit' THEN t.amount_paise END), 0) AS investments
-       FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
-       WHERE t.txn_date BETWEEN ? AND ? AND ${NON_TRANSFER}
-       GROUP BY t.month ORDER BY t.month`,
+      `WITH ${CONTRIB}
+       SELECT contrib.month,
+         COALESCE(SUM(CASE WHEN c.type = 'income' THEN ${SIGNED} END), 0) AS credits,
+         COALESCE(SUM(CASE WHEN c.type = 'expense' THEN ${SIGNED} END), 0) AS debits,
+         COALESCE(SUM(CASE WHEN c.type = 'investment' THEN ${SIGNED} END), 0) AS investments
+       FROM contrib LEFT JOIN categories c ON c.id = contrib.category_id
+       WHERE ${NON_TRANSFER}
+       GROUP BY contrib.month ORDER BY contrib.month`,
     )
-    .all(from, to) as Array<{ month: string; credits: number; debits: number; investments: number }>;
+    .all({ from, to }) as Array<{ month: string; credits: number; debits: number; investments: number }>;
 
   return rows.map((r) => ({
     month: r.month,
@@ -98,22 +120,24 @@ export interface CategoryRollupRow {
 export function categoryRollup(from: string, to: string): CategoryRollupRow[] {
   const rows = db()
     .prepare(
-      `SELECT c.id AS category_id, c.name AS category_name, c.type AS category_type,
-         SUM(t.amount_paise) AS total, COUNT(*) AS n,
-         CAST(AVG(t.amount_paise) AS INTEGER) AS avg_p,
-         MAX(t.amount_paise) AS largest, MAX(t.txn_date) AS last_date
-       FROM transactions t JOIN categories c ON c.id = t.category_id
-       WHERE t.txn_date BETWEEN ? AND ? AND t.is_transfer = 0 AND c.type != 'transfer'
+      `WITH ${CONTRIB}
+       SELECT c.id AS category_id, c.name AS category_name, c.type AS category_type,
+         SUM(${SIGNED}) AS total,
+         COUNT(DISTINCT contrib.txn_id) AS n,
+         MAX(CASE WHEN (c.type = 'income') = (contrib.direction = 'credit')
+                  THEN contrib.amount_paise END) AS largest,
+         MAX(contrib.txn_date) AS last_date
+       FROM contrib JOIN categories c ON c.id = contrib.category_id
+       WHERE contrib.is_transfer = 0 AND c.type != 'transfer'
        GROUP BY c.id ORDER BY total DESC`,
     )
-    .all(from, to) as Array<{
+    .all({ from, to }) as Array<{
     category_id: number;
     category_name: string;
     category_type: string;
     total: number;
     n: number;
-    avg_p: number;
-    largest: number;
+    largest: number | null;
     last_date: string;
   }>;
 
@@ -127,8 +151,8 @@ export function categoryRollup(from: string, to: string): CategoryRollupRow[] {
     category_type: r.category_type,
     total_paise: r.total,
     txn_count: r.n,
-    avg_paise: r.avg_p,
-    largest_paise: r.largest,
+    avg_paise: r.n > 0 ? Math.round(r.total / r.n) : 0, // net average
+    largest_paise: r.largest ?? 0,
     last_date: r.last_date,
     pct_of_expense:
       r.category_type === "expense" && expenseTotal > 0 ? r.total / expenseTotal : null,
