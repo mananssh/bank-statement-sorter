@@ -11,12 +11,20 @@ import { isEncryptedWorkbook } from "@/lib/parsers/decrypt";
 import { gridPreview } from "@/lib/parsers/grid";
 import { detectHeader, headerFingerprint } from "@/lib/parsers/detect";
 import { parseGrid } from "@/lib/parsers/parse";
-import type { ColumnMap, MappingSpec } from "@/lib/parsers/types";
+import type { CanonicalMfOrder, ColumnMap, MappingSpec, ParseIssue } from "@/lib/parsers/types";
 import type { AmountStyle, ImportBatchRow, ImportRowRow, StatementKind } from "@/lib/db/types";
 import { resolve } from "@/lib/categorize/resolver";
 import { recordConfirmation } from "@/lib/categorize/learn";
 import { detectTransfers } from "@/lib/categorize/transfers";
 import { payeeKey } from "@/lib/categorize/keys";
+import {
+  createInstrument,
+  matchFund,
+  normalizeSchemeName,
+  saveFundAlias,
+  type NewInstrumentInput,
+} from "@/lib/import/instruments";
+import { createHash } from "node:crypto";
 
 /**
  * Import pipeline orchestration. The uploaded file's ORIGINAL bytes are held
@@ -265,6 +273,10 @@ export async function stageBatch(input: StageInput): Promise<StageSummary> {
     conn
       .prepare(`UPDATE accounts SET default_preset_id = ? WHERE id = ? AND default_preset_id IS NULL`)
       .run(presetId, input.accountId);
+  }
+
+  if (input.statementKind === "mf_orders") {
+    return stageMfOrders(input, presetId, result.mfOrders, result.issues);
   }
 
   // Balance continuity (bank statements with balances only).
@@ -708,6 +720,337 @@ export function commitBatch(batchId: number): CommitSummary {
   passwordStore.delete(batchId);
 
   return { imported, skipped: included.length - imported, statementId, transfersDetected };
+}
+
+// ---- MF / investment orders path -------------------------------------------
+
+function mfOrderHash(o: CanonicalMfOrder): string {
+  return createHash("sha256")
+    .update(
+      [
+        "mfo",
+        normalizeSchemeName(o.scheme_name),
+        o.order_date,
+        o.units ?? "",
+        o.amount_paise,
+        o.side,
+      ].join("|"),
+    )
+    .digest("hex");
+}
+
+/** The order_no we store: the broker's if present, else content hash + seq. */
+function mfOrderNo(o: CanonicalMfOrder, hash: string, seq: number): string {
+  return o.order_no ?? `h:${hash.slice(0, 24)}:${seq}`;
+}
+
+function stageMfOrders(
+  input: StageInput,
+  presetId: number | null,
+  orders: CanonicalMfOrder[],
+  issues: ParseIssue[],
+): StageSummary {
+  const conn = db();
+  const existsStmt = conn.prepare(`SELECT COUNT(*) AS n FROM investment_txns WHERE order_no = ?`);
+  const insertRow = conn.prepare(
+    `INSERT INTO import_rows
+       (batch_id, row_no, txn_date, narration, ref_number, direction, amount_paise,
+        parsed, dedup_hash, dupe_seq, dup_status, include, parse_error, suggestion_confidence)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+  );
+
+  let duplicates = 0;
+  let unmatchedSchemes = 0;
+
+  const tx = conn.transaction(() => {
+    conn.prepare(`DELETE FROM import_rows WHERE batch_id = ?`).run(input.batchId);
+
+    const seqCounter = new Map<string, number>();
+    const seenSchemes = new Set<string>();
+    for (const o of orders) {
+      const hash = mfOrderHash(o);
+      const seq = seqCounter.get(hash) ?? 0;
+      seqCounter.set(hash, seq + 1);
+      const isDup =
+        (existsStmt.get(mfOrderNo(o, hash, seq)) as { n: number }).n > 0;
+      if (isDup) duplicates++;
+
+      const key = normalizeSchemeName(o.scheme_name);
+      if (!seenSchemes.has(key)) {
+        seenSchemes.add(key);
+        if (matchFund(conn, o.scheme_name, o.isin) === null) unmatchedSchemes++;
+      }
+
+      insertRow.run(
+        input.batchId,
+        o.row_no,
+        o.order_date,
+        o.scheme_name,
+        o.order_no,
+        o.side === "sell" ? "credit" : "debit",
+        o.amount_paise,
+        JSON.stringify({ units: o.units, nav: o.nav, side: o.side, isin: o.isin, folio: o.folio }),
+        hash,
+        seq,
+        isDup ? "duplicate" : "new",
+        isDup ? 0 : 1,
+        null,
+      );
+    }
+
+    for (const issue of issues) {
+      insertRow.run(
+        input.batchId, issue.row_no, null, JSON.stringify(issue.raw).slice(0, 500),
+        null, null, null, "{}", null, 0, "new", 0, issue.error,
+      );
+    }
+
+    conn
+      .prepare(
+        `UPDATE import_batches SET account_id = ?, preset_id = ?, statement_kind = 'mf_orders',
+           warnings = '[]', meta = json_set(meta, '$.step', 'review') WHERE id = ?`,
+      )
+      .run(input.accountId, presetId, input.batchId);
+  });
+  tx();
+
+  return {
+    total: orders.length,
+    newRows: orders.length - duplicates,
+    duplicates,
+    possibleDuplicates: 0,
+    issues: issues.length,
+    untagged: unmatchedSchemes,
+    warnings: [],
+  };
+}
+
+export interface SchemeGroup {
+  scheme: string; // display name (first occurrence)
+  key: string; // normalized
+  order_count: number;
+  total_paise: number;
+  duplicate_count: number;
+  suggested_fund_id: number | null;
+}
+
+export interface InvestmentReviewData {
+  rows: ImportRowRow[];
+  schemes: SchemeGroup[];
+  funds: Array<{ id: number; name: string; asset_class: string; instrument_kind: string }>;
+}
+
+export function getInvestmentReviewData(batchId: number): InvestmentReviewData {
+  const conn = db();
+  const rows = listBatchRows(batchId);
+  const groups = new Map<string, SchemeGroup>();
+  for (const r of rows) {
+    if (r.parse_error || !r.narration) continue;
+    const key = normalizeSchemeName(r.narration);
+    let g = groups.get(key);
+    if (!g) {
+      g = {
+        scheme: r.narration,
+        key,
+        order_count: 0,
+        total_paise: 0,
+        duplicate_count: 0,
+        suggested_fund_id: matchFund(conn, r.narration, isinOf(r)),
+      };
+      groups.set(key, g);
+    }
+    g.order_count++;
+    g.total_paise += r.amount_paise ?? 0;
+    if (r.dup_status === "duplicate") g.duplicate_count++;
+  }
+  const funds = conn
+    .prepare(`SELECT id, name, asset_class, instrument_kind FROM funds ORDER BY name`)
+    .all() as InvestmentReviewData["funds"];
+  return { rows, schemes: [...groups.values()], funds };
+}
+
+function isinOf(r: ImportRowRow): string | null {
+  try {
+    return (JSON.parse(r.parsed) as { isin?: string | null }).isin ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export interface SchemeMapping {
+  key: string; // normalized scheme key
+  fund_id?: number;
+  new_instrument?: NewInstrumentInput;
+}
+
+export interface InvestmentCommitSummary {
+  imported: number;
+  skipped: number;
+  statementId: number;
+  fundsCreated: number;
+  linkedBankTxns: number;
+}
+
+/**
+ * Commit an mf_orders batch: create any new instruments, alias every confirmed
+ * scheme→fund mapping (never asks twice), insert orders into investment_txns
+ * (order_no dedup), backfill fund_navs from order NAVs, and best-effort link
+ * same-day order groups to matching bank debits.
+ */
+export function commitInvestmentBatch(
+  batchId: number,
+  mappings: SchemeMapping[],
+): InvestmentCommitSummary {
+  const conn = db();
+  const batch = getBatch(batchId);
+  if (!batch || batch.status !== "staging" || !batch.account_id) {
+    throw new Error("Batch is not ready to commit");
+  }
+  const rows = listBatchRows(batchId).filter((r) => !r.parse_error && r.txn_date);
+  const included = rows.filter((r) => r.include === 1);
+  const startMonth = fyStartMonth();
+
+  // Every scheme present must be mapped.
+  const fundByKey = new Map<string, number>();
+  let fundsCreated = 0;
+
+  const insertTxn = conn.prepare(
+    `INSERT INTO investment_txns
+       (fund_id, txn_date, txn_type, amount_paise, nav, units, statement_id, order_no, fy_start_year)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(order_no) DO NOTHING`,
+  );
+  const upsertNav = conn.prepare(
+    `INSERT INTO fund_navs (fund_id, nav_date, nav) VALUES (?, ?, ?)
+     ON CONFLICT(fund_id, nav_date) DO UPDATE SET nav = excluded.nav`,
+  );
+
+  let imported = 0;
+  let statementId = 0;
+  let dateMin: string | null = null;
+  let dateMax: string | null = null;
+
+  const tx = conn.transaction(() => {
+    for (const m of mappings) {
+      let fundId = m.fund_id ?? null;
+      if (!fundId && m.new_instrument) {
+        fundId = createInstrument(conn, m.new_instrument);
+        fundsCreated++;
+      }
+      if (!fundId) throw new Error(`Scheme "${m.key}" is not mapped to an instrument.`);
+      fundByKey.set(m.key, fundId);
+      saveFundAlias(conn, fundId, m.key);
+    }
+
+    const stmtRes = conn
+      .prepare(
+        `INSERT INTO statements
+           (account_id, preset_id, file_name, file_sha256, file_kind, rows_total)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        batch.account_id, batch.preset_id, batch.file_name, batch.file_sha256,
+        batch.file_kind, rows.length,
+      );
+    statementId = Number(stmtRes.lastInsertRowid);
+
+    for (const r of included) {
+      const key = normalizeSchemeName(r.narration ?? "");
+      const fundId = fundByKey.get(key);
+      if (!fundId) throw new Error(`Scheme "${r.narration}" is not mapped to an instrument.`);
+      const parsed = JSON.parse(r.parsed) as {
+        units: number | null;
+        nav: number | null;
+        side: "buy" | "sell";
+      };
+      const orderNo = r.ref_number ?? `h:${r.dedup_hash!.slice(0, 24)}:${r.dupe_seq}`;
+      const res = insertTxn.run(
+        fundId,
+        r.txn_date,
+        parsed.side === "sell" ? "sell" : "lumpsum",
+        r.amount_paise,
+        parsed.nav,
+        parsed.units,
+        statementId,
+        orderNo,
+        fyStartYear(r.txn_date!, startMonth),
+      );
+      if (res.changes > 0) {
+        imported++;
+        if (parsed.nav && r.txn_date) upsertNav.run(fundId, r.txn_date, parsed.nav);
+        if (!dateMin || r.txn_date! < dateMin) dateMin = r.txn_date!;
+        if (!dateMax || r.txn_date! > dateMax) dateMax = r.txn_date!;
+      }
+    }
+
+    conn
+      .prepare(
+        `UPDATE statements SET rows_imported = ?, rows_duplicate = ?, period_start = ?, period_end = ?
+         WHERE id = ?`,
+      )
+      .run(imported, included.length - imported, dateMin, dateMax, statementId);
+    conn.prepare(`UPDATE import_batches SET status = 'committed' WHERE id = ?`).run(batchId);
+    conn.prepare(`DELETE FROM import_rows WHERE batch_id = ?`).run(batchId);
+  });
+  tx();
+
+  const linkedBankTxns = dateMin && dateMax ? linkOrdersToBankDebits(dateMin, dateMax) : 0;
+
+  try {
+    fs.rmSync(batchFilePath(batchId), { force: true });
+  } catch {
+    // best effort
+  }
+  passwordStore.delete(batchId);
+
+  return { imported, skipped: included.length - imported, statementId, fundsCreated, linkedBankTxns };
+}
+
+/**
+ * Best-effort audit link: a broker debits one lump sum per day while the order
+ * book lists individual orders, so match same-day order groups against
+ * investment-category bank debits (±3 days, small rounding tolerance since
+ * exports round to whole rupees).
+ */
+function linkOrdersToBankDebits(dateMin: string, dateMax: string): number {
+  const conn = db();
+  const orderGroups = conn
+    .prepare(
+      `SELECT txn_date, SUM(amount_paise) AS total, COUNT(*) AS n
+       FROM investment_txns
+       WHERE txn_type IN ('sip','lumpsum') AND linked_txn_id IS NULL
+         AND txn_date BETWEEN ? AND ?
+       GROUP BY txn_date`,
+    )
+    .all(dateMin, dateMax) as Array<{ txn_date: string; total: number; n: number }>;
+
+  const findDebit = conn.prepare(
+    `SELECT t.id, t.amount_paise FROM transactions t
+     LEFT JOIN categories c ON c.id = t.category_id
+     WHERE t.direction = 'debit' AND c.type = 'investment'
+       AND t.txn_date BETWEEN date(?, '-3 days') AND date(?, '+3 days')
+       AND ABS(t.amount_paise - ?) <= ?
+       AND NOT EXISTS (SELECT 1 FROM investment_txns i WHERE i.linked_txn_id = t.id)
+     ORDER BY ABS(t.amount_paise - ?) ASC, ABS(julianday(t.txn_date) - julianday(?)) ASC
+     LIMIT 1`,
+  );
+
+  let linked = 0;
+  for (const g of orderGroups) {
+    const tolerance = Math.max(100 * g.n, 100); // ₹1 per rounded order
+    const debit = findDebit.get(g.txn_date, g.txn_date, g.total, tolerance, g.total, g.txn_date) as
+      | { id: number }
+      | undefined;
+    if (!debit) continue;
+    const res = conn
+      .prepare(
+        `UPDATE investment_txns SET linked_txn_id = ?
+         WHERE txn_date = ? AND txn_type IN ('sip','lumpsum') AND linked_txn_id IS NULL`,
+      )
+      .run(debit.id, g.txn_date);
+    linked += res.changes;
+  }
+  return linked;
 }
 
 export function discardBatch(batchId: number): void {

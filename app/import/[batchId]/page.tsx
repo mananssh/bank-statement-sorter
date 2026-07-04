@@ -1,12 +1,19 @@
 import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
-import { getBatch, listBatchSheets, analyzeSheet, listBatchRows } from "@/lib/import/ingest";
+import {
+  getBatch,
+  listBatchSheets,
+  analyzeSheet,
+  listBatchRows,
+  getInvestmentReviewData,
+} from "@/lib/import/ingest";
 import { listAccounts, listCategories, listParties, listPresets } from "@/lib/repos/lookups";
 import { PasswordForm } from "@/components/import/password-form";
 import { SheetPicker } from "@/components/import/sheet-picker";
 import { MappingWizard } from "@/components/import/mapping-wizard";
 import { ReviewTable } from "@/components/import/review-table";
+import { InvestmentReview } from "@/components/import/investment-review";
 
 export default function BatchPage(props: PageProps<"/import/[batchId]">) {
   return (
@@ -108,6 +115,10 @@ async function StepBody({
   }
 
   if (step === "review") {
+    const batch = getBatch(batchId);
+    if (batch?.statement_kind === "mf_orders") {
+      return <InvestmentReview batchId={batchId} data={getInvestmentReviewData(batchId)} />;
+    }
     return (
       <ReviewTable
         batchId={batchId}

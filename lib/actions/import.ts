@@ -9,6 +9,7 @@ import {
   bulkTagUntagged,
   CommitBlockedError,
   commitBatch,
+  commitInvestmentBatch,
   createBatch,
   discardBatch,
   listBatchSheets,
@@ -16,6 +17,7 @@ import {
   setBatchRowParty,
   stageBatch,
   updateBatchRow,
+  type SchemeMapping,
   type StageSummary,
 } from "@/lib/import/ingest";
 import type { ColumnMap } from "@/lib/parsers/types";
@@ -156,4 +158,42 @@ export async function commitBatchAction(batchId: number): Promise<ActionResult> 
 export async function discardBatchAction(batchId: number): Promise<ActionResult> {
   discardBatch(batchId);
   redirect("/import");
+}
+
+const schemeMappingSchema = z.array(
+  z.object({
+    key: z.string().min(1),
+    fund_id: z.number().int().positive().optional(),
+    new_instrument: z
+      .object({
+        name: z.string().min(1).max(200),
+        instrument_kind: z.enum(["mutual_fund", "stock", "etf", "ppf", "epf", "nps", "bond", "other"]),
+        asset_class: z.enum(["equity", "debt", "gold", "elss", "hybrid", "other"]),
+        sub_category: z.string().max(60).nullable(),
+        is_elss: z.boolean(),
+        isin: z.string().max(20).nullable(),
+        platform: z.string().max(60).nullable(),
+      })
+      .optional(),
+  }),
+);
+
+export async function commitInvestmentBatchAction(
+  batchId: number,
+  mappings: unknown,
+): Promise<ActionResult> {
+  const parsed = schemeMappingSchema.safeParse(mappings);
+  if (!parsed.success) return { ok: false, error: "Invalid instrument mapping." };
+  try {
+    const summary = commitInvestmentBatch(batchId, parsed.data as SchemeMapping[]);
+    updateTag("investments");
+    updateTag("txns");
+    redirect(
+      `/investments?imported=${summary.imported}&skipped=${summary.skipped}&created=${summary.fundsCreated}&linked=${summary.linkedBankTxns}`,
+    );
+  } catch (e) {
+    if (e && typeof e === "object" && "digest" in e) throw e;
+    logError("import", e);
+    return { ok: false, error: e instanceof Error ? e.message : "Commit failed — nothing was written." };
+  }
 }

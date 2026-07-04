@@ -65,6 +65,20 @@ const BUILTINS: BuiltinPreset[] = [
     notes: "Monthly billed-statement .xls export for Tata Neu HDFC cards.",
   },
   {
+    name: "Groww MF order history (xlsx)",
+    institution: "Groww",
+    account_type: "investment",
+    statement_kind: "mf_orders",
+    file_kind: "xlsx",
+    headers: ["Scheme Name", "Transaction Type", "Units", "NAV", "Amount", "Date"],
+    data_start_offset: 1,
+    column_map: { scheme_name: 0, side: 1, units: 2, nav: 3, amount: 4, order_date: 5 },
+    amount_style: "signed_amount",
+    narration_plugin: null,
+    notes:
+      "Groww → Reports → Mutual Funds Order History. No ISIN/order no — dedup is content-based; the personal-details block at the top is skipped, never stored.",
+  },
+  {
     name: "Mutual fund order book (xlsx)",
     institution: "MF Order Book",
     account_type: "investment",
