@@ -167,7 +167,7 @@ export async function addInstrumentAction(formData: FormData) {
 /** Per-instrument SIP plan fields used by the target builder splits. */
 export async function updateFundSipAction(
   fundId: number,
-  patch: { is_sip_active?: boolean; sip_amount?: string },
+  patch: { is_sip_active?: boolean; sip_amount?: string; sip_weight?: number },
 ) {
   if ("is_sip_active" in patch) {
     db()
@@ -177,6 +177,9 @@ export async function updateFundSipAction(
   if ("sip_amount" in patch) {
     const paise = patch.sip_amount ? parseAmountToPaise(patch.sip_amount) : null;
     db().prepare(`UPDATE funds SET sip_amount_paise = ? WHERE id = ?`).run(paise, fundId);
+  }
+  if (patch.sip_weight !== undefined && Number.isFinite(patch.sip_weight) && patch.sip_weight >= 0) {
+    db().prepare(`UPDATE funds SET sip_weight = ? WHERE id = ?`).run(patch.sip_weight, fundId);
   }
   updateTag("investments");
   return { ok: true as const };
