@@ -193,6 +193,26 @@ const targetsSchema = z.array(
   }),
 );
 
+export async function toggleAmfiAction(enabled: boolean) {
+  setSetting("amfi_enabled", enabled);
+  updateTag("investments");
+  return { ok: true as const };
+}
+
+export async function fetchAmfiNavsAction() {
+  try {
+    const { fetchAmfiNavs } = await import("@/lib/integrations/amfi");
+    const result = await fetchAmfiNavs();
+    updateTag("investments");
+    return { ok: true as const, result };
+  } catch (e) {
+    return {
+      ok: false as const,
+      error: e instanceof Error ? e.message : "NAV fetch failed.",
+    };
+  }
+}
+
 /** Replace the whole allocation-target tree (tier-1 rows use sub_category ''). */
 export async function saveAllocationTargetsAction(targets: unknown) {
   const parsed = targetsSchema.safeParse(targets);

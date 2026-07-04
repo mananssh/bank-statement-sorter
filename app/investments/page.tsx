@@ -23,6 +23,8 @@ import {
   SipBudgetForm,
 } from "@/components/investments/investments-client";
 import { AddTxnForm, ValuationEditor } from "@/components/investments/holdings-extras";
+import { AmfiFetchButton } from "@/components/investments/amfi-controls";
+import { getSetting } from "@/lib/repos/settings";
 
 const KIND_LABEL: Record<string, string> = {
   mutual_fund: "MF",
@@ -200,10 +202,16 @@ async function Content({
       </div>
 
       <Card>
-        <CardTitle>
-          Holdings — {formatPaise(summary.value_paise, { compact: true })} across{" "}
-          {summary.holding_count} instrument(s)
-        </CardTitle>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <CardTitle>
+            Holdings — {formatPaise(summary.value_paise, { compact: true })} across{" "}
+            {summary.holding_count} instrument(s)
+          </CardTitle>
+          <AmfiFetchButton
+            enabled={getSetting<boolean>("amfi_enabled", false)}
+            lastFetch={getSetting<string | null>("amfi_last_fetch", null)}
+          />
+        </div>
         {holdings.length === 0 ? (
           <EmptyState
             title="No holdings yet"

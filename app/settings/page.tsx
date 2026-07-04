@@ -6,6 +6,7 @@ import { passphraseIsSet } from "@/lib/security/session";
 import { GeneralSettingsForm, PassphraseForm } from "@/components/settings/settings-forms";
 import { BootstrapForms } from "@/components/settings/bootstrap-forms";
 import { BackupManager } from "@/components/settings/backup-manager";
+import { AmfiToggle } from "@/components/investments/amfi-controls";
 import { listBackups } from "@/lib/db/autosave";
 import { pendingRestore } from "@/lib/db/restore";
 import { listAccounts } from "@/lib/repos/lookups";
@@ -35,10 +36,16 @@ async function Content() {
       <BackupManager backups={listBackups()} hasPendingRestore={pendingRestore()} />
       <Card>
         <CardTitle>Data & privacy</CardTitle>
+        <div className="mb-3 border-b border-hairline pb-3">
+          <AmfiToggle enabled={getSetting<boolean>("amfi_enabled", false)} />
+        </div>
         <dl className="space-y-1.5 text-sm">
           <Row label="Database" value={dbPath()} />
           <Row label="Data directory" value={dataDir()} />
-          <Row label="Network" value="Serves localhost only; zero external calls." />
+          <Row
+            label="Network"
+            value="Serves localhost only. Zero external calls unless the AMFI toggle above is on."
+          />
           <Row
             label="Off-machine backup"
             value="Download a consistent DB snapshot (VACUUM INTO) to store anywhere you like."

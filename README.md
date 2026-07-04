@@ -77,13 +77,13 @@ FY mastersheet (categories + transactions + tag history) and an investments work
 |---|---|
 | Localhost bind | `next dev/start -H 127.0.0.1`; nothing is reachable from your network |
 | Host allowlist (`proxy.ts`) | Rejects non-localhost `Host` headers → blocks DNS-rebinding |
-| Zero egress | No fetches to any external service, telemetry disabled |
+| Zero egress by default | No fetches to any external service, telemetry disabled. One opt-in exception: the AMFI NAV fetch (Settings toggle, off by default) — a single GET to amfiindia.com's public NAV file, sending nothing about you |
 | Optional passphrase | scrypt-hashed, HMAC session cookie (12h); enable in Settings |
 | Excel passwords | Used once, in memory, to decrypt an import — never persisted or logged |
 | Data at rest | Plain SQLite under `DATA_DIR` (gitignored); pair with OS disk encryption (BitLocker/FileVault) |
 | Log hygiene | Anything logged is redacted (digit runs, VPAs); raw failed rows stay inside the DB |
 | Numbers | Only last-4 digits of account/card numbers are ever stored |
-| Backups | Settings → download a consistent `VACUUM INTO` snapshot |
+| Backups | Continuous: WAL checkpoint every minute + rotating snapshots in `data/backups/` every 5 minutes (and at boot/shutdown); restore from Settings. Manual off-machine download too |
 
 ## Configuration
 
