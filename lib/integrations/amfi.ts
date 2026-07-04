@@ -3,6 +3,7 @@ import { db } from "@/lib/db/client";
 import { coerceDate } from "@/lib/normalize/dates";
 import { getSetting, setSetting } from "@/lib/repos/settings";
 import { logSafe } from "@/lib/security/redact";
+import { matchAmfiByName, parseNavAll, type AmfiRow } from "@/lib/integrations/amfi-match";
 
 /**
  * AMFI daily NAV fetch — THE ONLY external network call in the app, and it
@@ -10,9 +11,9 @@ import { logSafe } from "@/lib/security/redact";
  * AMFI's public NAVAll.txt (no auth, no cookies, nothing sent but the request
  * itself); NAVs are matched to instruments and stored locally.
  *
- * Matching: ISIN when the fund has one; otherwise a strict all-tokens name
- * match that must be UNIQUE across AMFI's list — and on success the matched
- * ISIN is written back to the fund, so future fetches are exact.
+ * Matching: ISIN when the fund has one; otherwise the plan/option-aware name
+ * matcher in amfi-match.ts — and on success the matched ISIN is written back
+ * to the fund, so future fetches are exact.
  */
 
 const AMFI_URL = "https://www.amfiindia.com/spages/NAVAll.txt";
@@ -24,20 +25,8 @@ export interface AmfiFetchResult {
   nav_date: string | null;
 }
 
-interface AmfiRow {
-  isins: string[];
-  name: string;
-  normName: string;
-  nav: number;
-  date: string;
-}
-
 export function amfiEnabled(): boolean {
   return getSetting<boolean>("amfi_enabled", false);
-}
-
-function normalize(name: string): string {
-  return name.toUpperCase().replace(/[^A-Z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
 export async function fetchAmfiNavs(): Promise<AmfiFetchResult> {
@@ -47,20 +36,7 @@ export async function fetchAmfiNavs(): Promise<AmfiFetchResult> {
 
   const res = await fetch(AMFI_URL, { signal: AbortSignal.timeout(30_000), cache: "no-store" });
   if (!res.ok) throw new Error(`AMFI responded ${res.status}`);
-  const text = await res.text();
-
-  const rows: AmfiRow[] = [];
-  for (const line of text.split("\n")) {
-    const parts = line.split(";");
-    // Scheme Code;ISIN Div Payout/ISIN Growth;ISIN Div Reinvestment;Scheme Name;NAV;Date
-    if (parts.length < 6) continue;
-    const nav = Number(parts[4]);
-    const date = coerceDate(parts[5].trim());
-    if (!Number.isFinite(nav) || nav <= 0 || !date) continue;
-    const isins = [parts[1].trim(), parts[2].trim()].filter((i) => /^IN[A-Z0-9]{10}$/.test(i));
-    const name = parts[3].trim();
-    rows.push({ isins, name, normName: normalize(name), nav, date });
-  }
+  const rows = parseNavAll(await res.text(), coerceDate);
   if (rows.length === 0) throw new Error("AMFI response did not parse — format may have changed.");
 
   const byIsin = new Map<string, AmfiRow>();
@@ -83,19 +59,14 @@ export async function fetchAmfiNavs(): Promise<AmfiFetchResult> {
   let navDate: string | null = null;
 
   for (const f of funds) {
-    let hit: AmfiRow | undefined;
+    let hit: AmfiRow | undefined | null;
     if (f.isin) hit = byIsin.get(f.isin.trim());
 
     if (!hit) {
-      // Strict token containment, unique across the whole list.
-      const tokens = normalize(f.name).split(" ").filter((t) => t.length > 1 || /\d/.test(t));
-      if (tokens.length >= 2) {
-        const candidates = rows.filter((r) => tokens.every((t) => r.normName.includes(t)));
-        if (candidates.length === 1) {
-          hit = candidates[0];
-          matchedByName++;
-          if (hit.isins[0]) setIsin.run(hit.isins[0], f.id); // self-heal to exact matching
-        }
+      hit = matchAmfiByName(f.name, rows);
+      if (hit) {
+        matchedByName++;
+        if (hit.isins[0]) setIsin.run(hit.isins[0], f.id); // self-heal to exact matching
       }
     }
 
