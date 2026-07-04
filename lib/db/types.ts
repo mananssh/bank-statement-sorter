@@ -184,10 +184,17 @@ export interface ImportRowRow {
   parse_error: string | null;
 }
 
+export type AssetClass = "equity" | "debt" | "gold" | "elss" | "hybrid" | "other";
+export type InstrumentKind =
+  | "mutual_fund" | "stock" | "etf" | "ppf" | "epf" | "nps" | "bond" | "other";
+
+/** Kinds valued by a balance you type in, not units × NAV. */
+export const BALANCE_KINDS: InstrumentKind[] = ["ppf", "epf", "nps"];
+
 export interface FundRow {
   id: number;
   name: string;
-  asset_class: "equity" | "debt" | "gold" | "elss" | "hybrid" | "other";
+  asset_class: AssetClass;
   sub_category: string | null;
   is_elss: number;
   platform: string | null;
@@ -195,6 +202,17 @@ export interface FundRow {
   folio: string | null;
   is_sip_active: number;
   notes: string | null;
+  instrument_kind: InstrumentKind;
+  symbol: string | null;
+  sip_weight: number;
+  sip_amount_paise: number | null;
+}
+
+export interface AllocationTargetRow {
+  id: number;
+  asset_class: AssetClass;
+  sub_category: string; // '' = tier-1 row
+  target_pct: number;
 }
 
 export interface InvestmentTxnRow {
@@ -218,9 +236,17 @@ export interface HoldingRow {
   asset_class: string;
   sub_category: string | null;
   is_elss: number;
+  instrument_kind: InstrumentKind;
+  symbol: string | null;
+  is_sip_active: number;
+  sip_weight: number;
+  sip_amount_paise: number | null;
   units: number;
   cost_basis_paise: number;
   last_nav: number | null;
+  last_nav_date: string | null;
+  last_valuation_paise: number | null;
+  last_valuation_date: string | null;
   last_txn_date: string;
 }
 
