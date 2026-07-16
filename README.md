@@ -37,6 +37,11 @@ exports — all on your machine, with zero external calls.
   calendar-year countries).
 - **Investments** — fund holdings with manual NAV valuation and P&L, monthly SIP
   budget progress, 80C/ELSS headroom tracker, goal buckets, fixed deposits.
+- **CAS import** — feed it your CAMS/KFintech **detailed CAS** (full MF
+  transaction history, broker-independent) and NSDL/CDSL **e-CAS** (demat
+  stock/ETF positions + MF units cross-check) PDFs. Parsed fully locally
+  (password stays in memory); headless CLI for scheduled automation:
+  `NODE_OPTIONS=--conditions=react-server npx tsx scripts/cas-import.ts <cas.pdf> --password <pw>`
 - **Invoices** — multi-currency register; sent invoices auto-suggest matching
   incoming bank credits for one-click paid-linking.
 - **Excel round-trip** — one-click export of a clean, pivot-ready **FY workbook**
@@ -79,7 +84,7 @@ FY mastersheet (categories + transactions + tag history) and an investments work
 | Host allowlist (`proxy.ts`) | Rejects non-localhost `Host` headers → blocks DNS-rebinding |
 | Zero egress by default | No fetches to any external service, telemetry disabled. One opt-in exception: the AMFI NAV fetch (Settings toggle, off by default) — a single GET to amfiindia.com's public NAV file, sending nothing about you |
 | Optional passphrase | scrypt-hashed, HMAC session cookie (12h); enable in Settings |
-| Excel passwords | Used once, in memory, to decrypt an import — never persisted or logged |
+| Excel/PDF passwords | Used once, in memory, to decrypt an import (workbooks, CAS PDFs) — never persisted or logged |
 | Data at rest | Plain SQLite under `DATA_DIR` (gitignored); pair with OS disk encryption (BitLocker/FileVault) |
 | Log hygiene | Anything logged is redacted (digit runs, VPAs); raw failed rows stay inside the DB |
 | Numbers | Only last-4 digits of account/card numbers are ever stored |
@@ -126,6 +131,7 @@ Dev checks against real files (never committed):
 
 ```bash
 npx tsx scripts/dev-parse-check.ts <statement.xlsx>          # parsing stats
+npx tsx scripts/dev-cas-check.ts <cas.pdf> --password <pw>   # CAS parse (no DB)
 DATA_DIR=/tmp/e2e NODE_OPTIONS=--conditions=react-server \
   npx tsx scripts/dev-e2e-check.ts <mastersheet> <statement> <sheet>  # full pipeline
 ```
@@ -133,7 +139,7 @@ DATA_DIR=/tmp/e2e NODE_OPTIONS=--conditions=react-server \
 ## Roadmap
 
 - Inbox folder scan (“drop files here, import everything that matches a preset”)
-- Opt-in AMFI NAV fetch (the app's only potential external call — off by default)
+- CAS PDF upload in the Import UI (the headless CLI exists today)
 - PDF ingestion (FD advices, receipts), invoice PDF generation
 - Zoho Books-compatible CSV export, preset sharing as JSON
 - SQLCipher opt-in for at-rest encryption
