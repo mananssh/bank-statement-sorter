@@ -8,12 +8,13 @@ import {
   listGoals,
   listHoldings,
   listInstruments,
+  listInvestmentFys,
   portfolioSummary,
   sipMonthStatus,
   sipTracker,
 } from "@/lib/repos/investments";
 import { fyStartMonth } from "@/lib/repos/settings";
-import { fyStartYear } from "@/lib/domain/fy";
+import { fyLabel, fyStartYear } from "@/lib/domain/fy";
 import { formatPaise } from "@/lib/domain/money";
 import { Badge, Card, CardTitle, EmptyState, Table, Th, Td, cx } from "@/components/ui";
 import {
@@ -207,6 +208,7 @@ async function Content({
             Holdings — {formatPaise(summary.value_paise, { compact: true })} across{" "}
             {summary.holding_count} instrument(s)
           </CardTitle>
+          <ExportLinks />
           <AmfiFetchButton
             enabled={getSetting<boolean>("amfi_enabled", false)}
             lastFetch={getSetting<string | null>("amfi_last_fetch", null)}
@@ -373,6 +375,27 @@ async function Content({
 
 function str(v: string | string[] | undefined): string | undefined {
   return typeof v === "string" && v !== "" ? v : undefined;
+}
+
+/** Audit export: flat transaction sheet + per-instrument summary, per FY. */
+function ExportLinks() {
+  const fys = listInvestmentFys();
+  if (fys.length === 0) return null;
+  const startMonth = fyStartMonth();
+  const link = "rounded-md border border-edge px-2 py-1 text-xs text-ink-secondary hover:bg-hairline";
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <span className="text-xs text-ink-muted">Export txns:</span>
+      {fys.slice(0, 3).map((y) => (
+        <a key={y} href={`/api/export/investments?fy=${y}`} className={link} download>
+          {fyLabel(y, startMonth)}
+        </a>
+      ))}
+      <a href="/api/export/investments" className={link} download>
+        All
+      </a>
+    </span>
+  );
 }
 
 function Kpi({ label, value, tone }: { label: string; value: string; tone: string }) {

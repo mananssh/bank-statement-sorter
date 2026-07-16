@@ -223,6 +223,17 @@ export function listInstruments(): FundRow[] {
   return db().prepare(`SELECT * FROM funds ORDER BY name`).all() as FundRow[];
 }
 
+/** FYs (start years) that have investment transactions, newest first. */
+export function listInvestmentFys(): number[] {
+  return (
+    db()
+      .prepare(
+        `SELECT DISTINCT fy_start_year AS y FROM investment_txns ORDER BY fy_start_year DESC`,
+      )
+      .all() as Array<{ y: number }>
+  ).map((r) => r.y);
+}
+
 export function listAllocationTargets(): AllocationTargetRow[] {
   return db()
     .prepare(`SELECT * FROM allocation_targets ORDER BY sub_category, target_pct DESC`)
