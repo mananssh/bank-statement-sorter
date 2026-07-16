@@ -82,7 +82,7 @@ async function importOne(file: string, password?: string): Promise<boolean> {
   const r = importNsdlCas(cas);
   console.log(
     `✓ ${name} [e-CAS as on ${cas.statement_date ?? "?"}]: ${r.holdings} holding(s), ` +
-      `${r.navs_updated} price(s) recorded, ${r.opening_positions} opening position(s), ` +
+      `${r.navs_updated} price(s) recorded, ${r.observed_positions} observed position(s), ` +
       `${r.instruments_created} instrument(s) created`,
   );
   for (const m of r.mismatches) {

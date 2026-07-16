@@ -71,7 +71,12 @@ async function Content({
   const searchParams = await searchParamsPromise;
   await connection();
 
-  const holdings = listHoldings();
+  const view = searchParams.view === "stocks" || searchParams.view === "all" ? searchParams.view : "mf";
+  const allHoldings = listHoldings();
+  const holdings = allHoldings.filter((h) => {
+    const isDematSide = h.instrument_kind === "stock" || h.instrument_kind === "etf";
+    return view === "all" || (view === "stocks" ? isDematSide : !isDematSide);
+  });
   const summary = portfolioSummary(holdings);
   const goals = listGoals();
   const fds = listFixedDeposits();
@@ -97,6 +102,27 @@ async function Content({
           .
         </div>
       ) : null}
+
+      <div className="flex items-center gap-1 rounded-lg border border-edge bg-surface p-0.5 text-xs w-fit">
+        {(
+          [
+            ["mf", "Mutual funds"],
+            ["stocks", "Stocks & ETFs"],
+            ["all", "All"],
+          ] as const
+        ).map(([key, label]) => (
+          <Link
+            key={key}
+            href={key === "mf" ? "/investments" : `/investments?view=${key}`}
+            className={cx(
+              "rounded-md px-2.5 py-1",
+              view === key ? "bg-hairline font-medium text-ink" : "text-ink-secondary hover:text-ink",
+            )}
+          >
+            {label}
+          </Link>
+        ))}
+      </div>
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <Kpi label="Invested" value={formatPaise(summary.invested_paise, { compact: true })} tone="text-ink" />
@@ -241,6 +267,11 @@ async function Content({
                     <span className="ml-1.5 inline-flex gap-1">
                       <Badge tone="neutral">{KIND_LABEL[h.instrument_kind]}</Badge>
                       {h.is_elss === 1 ? <Badge tone="investment">ELSS</Badge> : null}
+                      {h.is_observed ? (
+                        <span title="Position observed from a statement (e-CAS) — no transactions imported, so cost and P&L are unknown">
+                          <Badge tone="neutral">observed</Badge>
+                        </span>
+                      ) : null}
                     </span>
                   </Td>
                   <Td className="text-xs capitalize text-ink-secondary">
@@ -250,7 +281,9 @@ async function Content({
                   <Td className="text-right tnum">
                     {h.is_balance_kind ? "—" : h.units.toFixed(3)}
                   </Td>
-                  <Td className="text-right tnum">{formatPaise(h.cost_basis_paise)}</Td>
+                  <Td className="text-right tnum">
+                    {h.is_observed ? "—" : formatPaise(h.cost_basis_paise)}
+                  </Td>
                   <Td className="text-right tnum font-medium">
                     {h.market_value_paise !== null ? formatPaise(h.market_value_paise) : "—"}
                   </Td>

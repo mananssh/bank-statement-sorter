@@ -65,7 +65,7 @@ export async function buildInvestmentsSheet(fy: number | null): Promise<{
        JOIN funds f ON f.id = t.fund_id
        LEFT JOIN transactions bt ON bt.id = t.linked_txn_id
        LEFT JOIN accounts ba ON ba.id = bt.account_id
-       ORDER BY f.name, t.txn_date, t.id`,
+       ORDER BY t.txn_date, f.name, t.id`,
     )
     .all() as TxnRow[];
 

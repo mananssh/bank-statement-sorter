@@ -23,6 +23,9 @@ export interface HoldingView extends HoldingRow {
   pnl_paise: number | null;
   xirr_pct: number | null;
   is_balance_kind: boolean;
+  /** No transactions — position observed from a statement (e-CAS); units and
+   *  value are known, cost basis / P&L / XIRR are not. */
+  is_observed: boolean;
 }
 
 function resolveValue(h: HoldingRow): number | null {
@@ -56,6 +59,7 @@ export function listHoldings(): HoldingView[] {
   const today = new Date().toISOString().slice(0, 10);
 
   return rows.map((h) => {
+    const observed = h.txn_count === 0;
     const value = resolveValue(h);
     const fundFlows = flows.get(h.fund_id) ?? [];
     const rate =
@@ -64,10 +68,12 @@ export function listHoldings(): HoldingView[] {
         : null;
     return {
       ...h,
+      units: observed ? (h.last_valuation_units ?? h.units) : h.units,
       market_value_paise: value,
-      pnl_paise: value !== null ? value - h.cost_basis_paise : null,
+      pnl_paise: value !== null && !observed ? value - h.cost_basis_paise : null,
       xirr_pct: rate !== null ? rate * 100 : null,
       is_balance_kind: BALANCE_KINDS.includes(h.instrument_kind),
+      is_observed: observed,
     };
   });
 }
@@ -83,19 +89,28 @@ export interface PortfolioSummary {
 export function portfolioSummary(holdings: HoldingView[]): PortfolioSummary {
   const invested = holdings.reduce((s, h) => s + h.cost_basis_paise, 0);
   const value = holdings.reduce((s, h) => s + (h.market_value_paise ?? h.cost_basis_paise), 0);
+  // P&L only where cost is actually known — observed positions (statement
+  // snapshot, no transactions) have value but no basis to measure against.
+  const pnl = holdings.reduce((s, h) => s + (h.pnl_paise ?? 0), 0);
 
   const flows = flowsByFund();
   const all: CashFlow[] = [];
   const today = new Date().toISOString().slice(0, 10);
-  for (const h of holdings) for (const f of flows.get(h.fund_id) ?? []) all.push(f);
+  let flowValue = 0; // terminal value restricted to funds that have cash flows
+  for (const h of holdings) {
+    const f = flows.get(h.fund_id);
+    if (!f || f.length === 0) continue;
+    all.push(...f);
+    flowValue += h.market_value_paise ?? h.cost_basis_paise;
+  }
   all.sort((a, b) => a.date.localeCompare(b.date));
-  if (value > 0) all.push({ date: today, amount: value });
+  if (flowValue > 0) all.push({ date: today, amount: flowValue });
   const rate = xirr(all);
 
   return {
     invested_paise: invested,
     value_paise: value,
-    pnl_paise: value - invested,
+    pnl_paise: pnl,
     xirr_pct: rate !== null ? rate * 100 : null,
     holding_count: holdings.length,
   };

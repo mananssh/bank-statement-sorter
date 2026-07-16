@@ -241,12 +241,14 @@ export interface HoldingRow {
   is_sip_active: number;
   sip_weight: number;
   sip_amount_paise: number | null;
+  txn_count: number;
   units: number;
   cost_basis_paise: number;
   last_nav: number | null;
   last_nav_date: string | null;
   last_valuation_paise: number | null;
   last_valuation_date: string | null;
+  last_valuation_units: number | null;
   last_txn_date: string;
 }
 

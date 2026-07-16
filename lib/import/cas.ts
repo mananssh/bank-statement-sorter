@@ -18,10 +18,12 @@ import type { AssetClass, InstrumentKind } from "@/lib/db/types";
  * no-ops and avoids double-counting orders already imported from a broker
  * export (whose amounts can differ from CAS by the stamp-duty paise).
  *
- * NSDL equities with no transaction history get a synthetic opening position
- * at the statement's market value (cost basis = value at first sight, marked
- * in notes) — CAS shows quantities, not the prices originally paid. MF rows
- * never get synthetic positions: the CAMS detailed CAS backfills real ones.
+ * NSDL holdings with no transaction history are recorded as OBSERVED
+ * positions (units + value in instrument_valuations, dated to the statement)
+ * — never as fabricated buy transactions. CAS shows quantities, not the
+ * prices originally paid, so cost basis / P&L / XIRR stay null until real
+ * trades are imported (CAMS detailed CAS for MFs, broker tradebook for
+ * stocks).
  */
 
 function guessAssetClass(name: string): { asset_class: AssetClass; is_elss: boolean } {
@@ -167,6 +169,12 @@ export function importCamsCas(cas: CamsCas): CamsImportResult {
         "CAS",
       );
       if (created) result.instruments_created++;
+      // Present in a CAMS CAS ⇒ folio-held ⇒ a mutual fund. Heals FoFs that a
+      // broker export's "ETF" naming misclassified (real ETFs are demat-only
+      // and never appear here).
+      conn
+        .prepare(`UPDATE funds SET instrument_kind = 'mutual_fund' WHERE id = ? AND instrument_kind = 'etf'`)
+        .run(fundId);
       result.charges_skipped += scheme.charges_skipped;
 
       const existing = conn
@@ -240,7 +248,7 @@ export interface NsdlReconcileRow {
 export interface NsdlImportResult {
   holdings: number;
   instruments_created: number;
-  opening_positions: number;
+  observed_positions: number; // units+value recorded, no transactions invented
   navs_updated: number;
   mismatches: NsdlReconcileRow[]; // app units ≠ CAS units (needs a look)
   mf_without_txns: string[]; // import CAMS detailed CAS to backfill these
@@ -248,20 +256,19 @@ export interface NsdlImportResult {
 
 export function importNsdlCas(cas: NsdlCas): NsdlImportResult {
   const conn = db();
-  const startMonth = fyStartMonth();
   const navDate = cas.statement_date;
   const upsertNav = upsertNavStmt();
-  const insert = conn.prepare(
-    `INSERT INTO investment_txns
-       (fund_id, txn_date, txn_type, amount_paise, nav, units, fy_start_year, order_no, notes)
-     VALUES (?, ?, 'lumpsum', ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(order_no) DO NOTHING`,
+  const upsertValuation = conn.prepare(
+    `INSERT INTO instrument_valuations (fund_id, val_date, value_paise, units)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(fund_id, val_date) DO UPDATE SET value_paise = excluded.value_paise,
+                                                  units = excluded.units`,
   );
 
   const result: NsdlImportResult = {
     holdings: cas.holdings.length,
     instruments_created: 0,
-    opening_positions: 0,
+    observed_positions: 0,
     navs_updated: 0,
     mismatches: [],
     mf_without_txns: [],
@@ -302,24 +309,13 @@ export function importNsdlCas(cas: NsdlCas): NsdlImportResult {
         .get(fundId, navDate ?? "9999-12-31") as { n: number; units: number };
 
       if (agg.n === 0) {
-        // Equities AND ETFs: both live in demat, and the CAMS detailed CAS
-        // (which backfills real MF txns) never covers either of them.
-        const openable = h.kind === "equity" || kind === "etf";
-        if (openable && h.units !== null && h.value_paise !== null && navDate) {
-          // Synthetic opening position at statement market value; order_no
-          // keyed on ISIN alone so later statements can't re-open it.
-          insert.run(
-            fundId,
-            navDate,
-            h.value_paise,
-            h.price,
-            h.units,
-            fyStartYear(navDate, startMonth),
-            `NSDL-CAS-OPEN:${h.isin}`,
-            `Opening position from e-CAS as on ${navDate} (cost basis = market value at import)`,
-          );
-          result.opening_positions++;
-        } else if (h.kind === "fund") {
+        // No transaction history: record the observed position (units + value
+        // as of the statement date) — never invent a buy for it.
+        if (h.units !== null && h.value_paise !== null && navDate) {
+          upsertValuation.run(fundId, navDate, h.value_paise, h.units);
+          result.observed_positions++;
+        }
+        if (h.kind === "fund" && !/\bETF\b|BEES\b/i.test(h.name)) {
           result.mf_without_txns.push(h.name || h.isin);
         }
         continue;
