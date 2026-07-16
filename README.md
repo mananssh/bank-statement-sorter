@@ -39,8 +39,9 @@ exports — all on your machine, with zero external calls.
   budget progress, 80C/ELSS headroom tracker, goal buckets, fixed deposits.
 - **CAS import** — feed it your CAMS/KFintech **detailed CAS** (full MF
   transaction history, broker-independent) and NSDL/CDSL **e-CAS** (demat
-  stock/ETF positions + MF units cross-check) PDFs. Parsed fully locally
-  (password stays in memory); headless CLI for scheduled automation:
+  stock/ETF positions + MF units cross-check) PDFs, via the Import page or a
+  headless CLI for scheduled automation. Parsed fully locally (password stays
+  in memory):
   `NODE_OPTIONS=--conditions=react-server npx tsx scripts/cas-import.ts <cas.pdf> --password <pw>`
 - **Invoices** — multi-currency register; sent invoices auto-suggest matching
   incoming bank credits for one-click paid-linking.
@@ -139,7 +140,6 @@ DATA_DIR=/tmp/e2e NODE_OPTIONS=--conditions=react-server \
 ## Roadmap
 
 - Inbox folder scan (“drop files here, import everything that matches a preset”)
-- CAS PDF upload in the Import UI (the headless CLI exists today)
 - PDF ingestion (FD advices, receipts), invoice PDF generation
 - Zoho Books-compatible CSV export, preset sharing as JSON
 - SQLCipher opt-in for at-rest encryption
