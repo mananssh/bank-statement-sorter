@@ -3,6 +3,7 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { db } from "@/lib/db/client";
 import { FileDrop } from "@/components/import/file-drop";
+import { CasUpload } from "@/components/import/cas-upload";
 import { Card, CardTitle, Badge, Table, Th, Td, EmptyState } from "@/components/ui";
 import { formatPaise } from "@/lib/domain/money";
 
@@ -11,6 +12,7 @@ export default function ImportPage() {
     <div className="mx-auto max-w-4xl space-y-6">
       <h1 className="text-lg font-semibold">Import a statement</h1>
       <FileDrop />
+      <CasUpload />
       <Suspense>
         <RecentActivity />
       </Suspense>
