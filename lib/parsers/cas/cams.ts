@@ -62,7 +62,10 @@ export function looksLikeCamsCas(pages: string[][]): boolean {
 
 const PERIOD_RE = new RegExp(`(${CAS_DATE_RE.source})\\s+To\\s+(${CAS_DATE_RE.source})`, "i");
 const FOLIO_RE = /Folio No\s*:?\s*([0-9][\w\s/.-]*?)(?=\s+(?:PAN|KYC|$)|$)/i;
-const SCHEME_RE = /^(.+?)\s*(?:\(\s*Advisor\s*:[^)]*\))?\s*Registrar\s*:\s*(\S+)/i;
+// RTA is optional on the header line itself: KFintech schemes wrap, leaving
+// "Registrar :" at the line end and "KFINTECH" alone on the next line.
+const SCHEME_RE = /^(.+?)\s*(?:\(\s*Advisor\s*:[^)]*\))?\s*Registrar\s*:\s*(\S+)?\s*$/i;
+const RTA_ONLY_RE = /^[A-Z]{3,20}$/;
 const ISIN_LINE_RE = new RegExp(`ISIN\\s*:?\\s*(${ISIN_RE.source.replace(/\\b/g, "")})`, "i");
 const OPENING_RE = /Opening Unit Balance\s*:?\s*([\d,.]+)/i;
 const CLOSING_RE = /Closing Unit Balance\s*:?\s*([\d,.]+)/i;
@@ -98,6 +101,7 @@ function cleanSchemeName(raw: string): string {
     .replace(/^[A-Z0-9]{2,15}-\s*/i, "")
     .replace(ISIN_LINE_RE, "")
     .replace(/\(\s*formerly[^)]*\)/i, "")
+    .replace(/\(\s*demat\s*\)/i, "")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[-–\s]+$/, "");
@@ -108,6 +112,24 @@ export function parseCamsCas(pages: string[][]): CamsCas {
   const cas: CamsCas = { period_from: null, period_to: null, schemes: [] };
   let folio: string | null = null;
   let scheme: CamsScheme | null = null;
+  let awaitingRta = false;
+
+  const newScheme = (name: string, isin: string | null, rta: string | null): CamsScheme => {
+    const s: CamsScheme = {
+      name,
+      isin,
+      folio,
+      rta,
+      opening_units: null,
+      closing_units: null,
+      closing_nav: null,
+      closing_nav_date: null,
+      txns: [],
+      charges_skipped: 0,
+    };
+    cas.schemes.push(s);
+    return s;
+  };
 
   for (const line of lines) {
     if (!cas.period_from) {
@@ -127,24 +149,26 @@ export function parseCamsCas(pages: string[][]): CamsCas {
     if (/Registrar\s*:/i.test(line)) {
       const s = line.match(SCHEME_RE);
       if (s) {
-        scheme = {
-          name: cleanSchemeName(s[1]),
-          isin: line.match(ISIN_LINE_RE)?.[1]?.toUpperCase() ?? null,
-          folio,
-          rta: s[2],
-          opening_units: null,
-          closing_units: null,
-          closing_nav: null,
-          closing_nav_date: null,
-          txns: [],
-          charges_skipped: 0,
-        };
-        cas.schemes.push(scheme);
+        scheme = newScheme(
+          cleanSchemeName(s[1]),
+          line.match(ISIN_LINE_RE)?.[1]?.toUpperCase() ?? null,
+          s[2] ?? null,
+        );
+        awaitingRta = !s[2];
         continue;
       }
     }
 
     if (!scheme) continue;
+
+    // Wrapped header: the RTA name landed alone on the line after "Registrar :".
+    if (awaitingRta) {
+      awaitingRta = false;
+      if (RTA_ONLY_RE.test(line)) {
+        scheme.rta = line;
+        continue;
+      }
+    }
 
     // ISIN sometimes sits on its own line under the scheme header.
     if (!scheme.isin && scheme.txns.length === 0) {
@@ -154,6 +178,12 @@ export function parseCamsCas(pages: string[][]): CamsCas {
 
     const open = line.match(OPENING_RE);
     if (open) {
+      // A second opening balance without a new header means the header line
+      // failed to parse — start an anonymous scheme rather than corrupting
+      // the previous one (it surfaces as unparsed in the import summary).
+      if (scheme.opening_units !== null || scheme.closing_units !== null) {
+        scheme = newScheme("", null, null);
+      }
       scheme.opening_units = parseCasNumber(open[1]);
       continue;
     }

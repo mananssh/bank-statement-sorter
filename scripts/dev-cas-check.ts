@@ -90,7 +90,7 @@ async function main() {
     console.log(`statement date: ${cas.statement_date ?? "?"}`);
     console.log(`holdings: ${cas.holdings.length}\n`);
     for (const h of cas.holdings) {
-      console.log(`● [${h.kind}] ${h.name || "(no name parsed)"}`);
+      console.log(`● [${h.kind}] ${h.name || "(no name parsed)"}${h.symbol ? ` (${h.symbol})` : ""}`);
       console.log(
         `    isin=${h.isin} units=${h.units ?? "—"} price=${h.price ?? "—"} ` +
           `value=${h.value_paise !== null ? `₹${(h.value_paise / 100).toFixed(2)}` : "—"}`,

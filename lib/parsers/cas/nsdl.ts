@@ -16,6 +16,7 @@ import { CAS_DATE_RE, ISIN_RE, casDateToIso, parseCasNumber, toPaise } from "@/l
 export interface NsdlHolding {
   isin: string;
   name: string;
+  symbol: string | null; // exchange symbol ("SBIN.NSE") from the wrap line
   units: number | null;
   price: number | null; // market price / NAV per unit, in rupees
   value_paise: number | null;
@@ -43,8 +44,13 @@ const PERIOD_RE = new RegExp(
 const AS_ON_RE = new RegExp(`as on\\s*:?\\s*(${CAS_DATE_RE.source})`, "i");
 const ISIN_G = new RegExp(ISIN_RE.source, "g");
 // numeric cell: needs a decimal point or comma grouping (bare integers are
-// too often part of names/codes to trust)
+// too often part of names/codes — "MIDCAP 30" — to trust)…
 const NUM_TOKEN_RE = /^\(?-?\d[\d,]*\.\d+\)?$|^\(?-?\d{1,3}(,\d{2,3})+\)?$/;
+// …EXCEPT once the numeric zone of the row has started: share counts are
+// printed as bare integers ("Face Value 1.00, Shares 10, Price 2,118.20").
+const BARE_INT_RE = /^\d+$/;
+// company/scheme names wrap; the wrap line starts with the exchange symbol
+const SYMBOL_LINE_RE = /^([A-Z0-9&_-]{2,20}\.(?:NSE|BSE))\b\s*(.*)$/;
 
 interface Fit {
   units: number;
@@ -75,6 +81,7 @@ export function parseNsdlCas(pages: string[][]): NsdlCas {
   const lines = pages.flat();
   const cas: NsdlCas = { statement_date: null, period_from: null, holdings: [] };
   const byIsin = new Map<string, NsdlHolding>();
+  let last: NsdlHolding | null = null;
 
   for (const line of lines) {
     if (!cas.statement_date) {
@@ -89,7 +96,19 @@ export function parseNsdlCas(pages: string[][]): NsdlCas {
     }
 
     const isins = line.match(ISIN_G);
-    if (!isins || isins.length !== 1) continue; // header/legend lines list many
+    if (!isins || isins.length !== 1) {
+      // Wrapped name row right under a holding: "TCS.NSE LIMITED".
+      if (last && !isins) {
+        const sym = line.match(SYMBOL_LINE_RE);
+        if (sym) {
+          last.symbol ??= sym[1];
+          const rest = sym[2].replace(/\s+/g, " ").trim();
+          if (rest && !/\d/.test(rest)) last.name = `${last.name} ${rest}`.trim();
+        }
+        last = null;
+      }
+      continue;
+    }
     const isin = isins[0].toUpperCase();
 
     const after = line.slice(line.indexOf(isins[0]) + isins[0].length).trim();
@@ -97,7 +116,7 @@ export function parseNsdlCas(pages: string[][]): NsdlCas {
     const nums: number[] = [];
     const nameParts: string[] = [];
     for (const tok of tokens) {
-      if (NUM_TOKEN_RE.test(tok)) {
+      if (NUM_TOKEN_RE.test(tok) || (nums.length > 0 && BARE_INT_RE.test(tok))) {
         const n = parseCasNumber(tok);
         if (n !== null) {
           nums.push(n);
@@ -114,6 +133,7 @@ export function parseNsdlCas(pages: string[][]): NsdlCas {
     const holding: NsdlHolding = {
       isin,
       name,
+      symbol: null,
       units: fit ? fit.units : (nums[0] ?? null),
       price: fit ? fit.price : null,
       value_paise: fit ? toPaise(fit.value) : nums.length > 1 ? toPaise(nums[nums.length - 1]) : null,
@@ -125,7 +145,13 @@ export function parseNsdlCas(pages: string[][]): NsdlCas {
     const existing = byIsin.get(isin);
     const score = (h: NsdlHolding) =>
       (h.units !== null ? 1 : 0) + (h.price !== null ? 1 : 0) + (h.value_paise !== null ? 1 : 0);
-    if (!existing || score(holding) > score(existing)) byIsin.set(isin, holding);
+    if (!existing || score(holding) > score(existing)) {
+      holding.symbol ??= existing?.symbol ?? null;
+      byIsin.set(isin, holding);
+      last = holding;
+    } else {
+      last = existing;
+    }
   }
 
   cas.holdings = [...byIsin.values()];

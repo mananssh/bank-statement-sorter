@@ -46,11 +46,22 @@ function resolveOrCreate(
   isin: string | null,
   kind: InstrumentKind,
   platform: string,
+  opts: { saveAlias: boolean } = { saveAlias: true },
 ): { fundId: number; created: boolean } {
   const conn = db();
-  const existing = matchFund(conn, name, isin);
+  // ISIN outranks learned name aliases: NSDL truncates scheme names down to
+  // the AMC ("HDFC MUTUAL FUND"), which would otherwise alias-collide every
+  // scheme of that AMC onto one fund.
+  let existing: number | null = null;
+  if (isin) {
+    const byIsin = conn.prepare(`SELECT id FROM funds WHERE isin = ?`).get(isin) as
+      | { id: number }
+      | undefined;
+    if (byIsin) existing = byIsin.id;
+  }
+  existing ??= matchFund(conn, name, isin);
   if (existing !== null) {
-    saveFundAlias(conn, existing, name);
+    if (opts.saveAlias) saveFundAlias(conn, existing, name);
     if (isin) {
       conn
         .prepare(`UPDATE funds SET isin = ? WHERE id = ? AND isin IS NULL`)
@@ -68,7 +79,7 @@ function resolveOrCreate(
     isin,
     platform,
   });
-  saveFundAlias(conn, fundId, name);
+  if (opts.saveAlias) saveFundAlias(conn, fundId, name);
   return { fundId, created: true };
 }
 
@@ -261,23 +272,34 @@ export function importNsdlCas(cas: NsdlCas): NsdlImportResult {
       if (!h.name && h.units === null) continue;
       const kind: InstrumentKind =
         h.kind === "equity" ? "stock" : /\bETF\b|BEES\b/i.test(h.name) ? "etf" : "mutual_fund";
-      const { fundId, created } = resolveOrCreate(h.name || h.isin, h.isin, kind, "CAS");
+      // NSDL names are truncated (often just the AMC) — never learn them as
+      // aliases; ISIN identity carries the match.
+      const { fundId, created } = resolveOrCreate(h.name || h.isin, h.isin, kind, "CAS", {
+        saveAlias: false,
+      });
       if (created) result.instruments_created++;
+      if (h.symbol) {
+        conn
+          .prepare(`UPDATE funds SET symbol = ? WHERE id = ? AND symbol IS NULL`)
+          .run(h.symbol, fundId);
+      }
 
       if (h.price !== null && h.price > 0 && navDate) {
         upsertNav.run(fundId, navDate, h.price);
         result.navs_updated++;
       }
 
+      // Reconcile as of the statement date — txns after it (this month's
+      // SIPs) are expected to differ from the snapshot.
       const agg = conn
         .prepare(
           `SELECT COUNT(*) AS n,
                   COALESCE(SUM(CASE WHEN txn_type IN ('sip','lumpsum') THEN COALESCE(units,0)
                                     WHEN txn_type = 'sell' THEN -COALESCE(units,0)
                                     ELSE 0 END), 0) AS units
-           FROM investment_txns WHERE fund_id = ?`,
+           FROM investment_txns WHERE fund_id = ? AND txn_date <= ?`,
         )
-        .get(fundId) as { n: number; units: number };
+        .get(fundId, navDate ?? "9999-12-31") as { n: number; units: number };
 
       if (agg.n === 0) {
         // Equities AND ETFs: both live in demat, and the CAMS detailed CAS
@@ -303,7 +325,10 @@ export function importNsdlCas(cas: NsdlCas): NsdlImportResult {
         continue;
       }
 
-      if (h.units !== null && Math.abs(agg.units - h.units) > 0.01) {
+      // Tolerance scales with position size: broker exports round units per
+      // order, and that rounding accumulates across a long SIP history.
+      const tolerance = Math.max(0.05, h.units !== null ? h.units * 0.0005 : 0);
+      if (h.units !== null && Math.abs(agg.units - h.units) > tolerance) {
         result.mismatches.push({
           isin: h.isin,
           name: h.name || h.isin,
