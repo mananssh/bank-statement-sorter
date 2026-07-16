@@ -41,7 +41,7 @@ export async function importCasAction(
       summary:
         err instanceof PdfPasswordError
           ? "The PDF is password-protected — the password is missing or wrong."
-          : "Could not read the PDF.",
+          : `Could not read the PDF${err instanceof Error ? ` — ${err.message}` : ""}.`,
       warnings: [],
     };
   }
