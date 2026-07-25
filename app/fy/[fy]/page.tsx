@@ -9,6 +9,8 @@ import { listTransactions } from "@/lib/repos/transactions";
 import { formatPaise } from "@/lib/domain/money";
 import { Card, CardTitle, Table, Th, Td, EmptyState, cx } from "@/components/ui";
 
+const PAGE_SIZE = 200;
+
 /**
  * The on-screen "supersheet": one financial year, month filter chips, the
  * ledger in mastersheet column order, and the Consolidator-style summary —
@@ -32,6 +34,7 @@ async function FyContent({
   const { fy: fyStr } = await paramsPromise;
   const searchParams = await searchParamsPromise;
   const month = typeof searchParams.month === "string" ? searchParams.month : undefined;
+  const page = Number((typeof searchParams.page === "string" && searchParams.page) || "1") || 1;
   await connection();
   const fy = Number(fyStr);
   if (!Number.isInteger(fy) || fy < 1990 || fy > 2100) notFound();
@@ -46,7 +49,8 @@ async function FyContent({
   const { rows, total } = listTransactions({
     fyStartYear: fy,
     month,
-    limit: 500,
+    limit: PAGE_SIZE,
+    offset: (page - 1) * PAGE_SIZE,
   });
 
   return (
@@ -137,9 +141,7 @@ async function FyContent({
         <EmptyState title="No transactions here" hint="Import statements covering this period." />
       ) : (
         <>
-          <p className="text-xs text-ink-muted tnum">
-            {total.toLocaleString("en-IN")} transaction(s){total > 500 ? " — showing first 500" : ""}
-          </p>
+          <p className="text-xs text-ink-muted tnum">{total.toLocaleString("en-IN")} transaction(s)</p>
           <Table>
             <thead>
               <tr>
@@ -178,8 +180,46 @@ async function FyContent({
               ))}
             </tbody>
           </Table>
+          {total > PAGE_SIZE ? <FyPagination fy={fy} month={month} page={page} total={total} /> : null}
         </>
       )}
+    </div>
+  );
+}
+
+function FyPagination({
+  fy,
+  month,
+  page,
+  total,
+}: {
+  fy: number;
+  month: string | undefined;
+  page: number;
+  total: number;
+}) {
+  const pages = Math.ceil(total / PAGE_SIZE);
+  const qs = (p: number) => {
+    const params = new URLSearchParams();
+    if (month) params.set("month", month);
+    params.set("page", String(p));
+    return `/fy/${fy}?${params}`;
+  };
+  return (
+    <div className="flex items-center justify-center gap-3 text-sm">
+      {page > 1 ? (
+        <Link className="text-accent hover:underline" href={qs(page - 1)}>
+          ← Newer
+        </Link>
+      ) : null}
+      <span className="text-ink-muted tnum">
+        page {page} / {pages}
+      </span>
+      {page < pages ? (
+        <Link className="text-accent hover:underline" href={qs(page + 1)}>
+          Older →
+        </Link>
+      ) : null}
     </div>
   );
 }
