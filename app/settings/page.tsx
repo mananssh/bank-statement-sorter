@@ -7,6 +7,7 @@ import { GeneralSettingsForm, PassphraseForm } from "@/components/settings/setti
 import { BootstrapForms } from "@/components/settings/bootstrap-forms";
 import { BackupManager } from "@/components/settings/backup-manager";
 import { AmfiToggle } from "@/components/investments/amfi-controls";
+import { ShowHiddenInvestmentsToggle } from "@/components/investments/instrument-controls";
 import { listBackups } from "@/lib/db/autosave";
 import { pendingRestore } from "@/lib/db/restore";
 import { listAccounts } from "@/lib/repos/lookups";
@@ -34,6 +35,12 @@ async function Content() {
       <PassphraseForm isSet={passphraseIsSet()} />
       <BootstrapForms accounts={listAccounts()} />
       <BackupManager backups={listBackups()} hasPendingRestore={pendingRestore()} />
+      <Card>
+        <CardTitle>Investments</CardTitle>
+        <ShowHiddenInvestmentsToggle
+          enabled={getSetting<boolean>("show_hidden_investments", true)}
+        />
+      </Card>
       <Card>
         <CardTitle>Data & privacy</CardTitle>
         <div className="mb-3 border-b border-hairline pb-3">

@@ -190,7 +190,7 @@ export async function buildFyWorkbook(fyStartYear: number): Promise<Buffer> {
       ]), { moneyCols: [5, 7] });
   }
 
-  const goals = listGoals();
+  const goals = listGoals(holdings);
   if (goals.length) {
     addTableSheet(wb, "Goals", ["Goal", "Allocation %", "Value"],
       goals.map((g) => [g.name, g.allocation_pct, g.value_paise !== null ? g.value_paise / 100 : null]),

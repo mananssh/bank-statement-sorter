@@ -70,6 +70,11 @@ export interface NewInstrumentInput {
   is_elss: boolean;
   isin: string | null;
   platform: string | null;
+  /** Recurring monthly SIP, tracked by the SIP tracker/planner. Default off
+   *  — every instrument used to be created as an active SIP unconditionally,
+   *  which is why the tracker showed everything; now it's a deliberate
+   *  per-fund opt-in (toggle it after import, or pass true here). */
+  is_sip_active?: boolean;
 }
 
 export function createInstrument(db: Database, input: NewInstrumentInput): number {
@@ -77,7 +82,7 @@ export function createInstrument(db: Database, input: NewInstrumentInput): numbe
     .prepare(
       `INSERT INTO funds (name, asset_class, sub_category, is_elss, platform, isin,
                           is_sip_active, instrument_kind)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.name.trim(),
@@ -86,6 +91,7 @@ export function createInstrument(db: Database, input: NewInstrumentInput): numbe
       input.is_elss ? 1 : 0,
       input.platform?.trim() || null,
       input.isin?.trim() || null,
+      input.is_sip_active ? 1 : 0,
       input.instrument_kind,
     );
   return Number(res.lastInsertRowid);

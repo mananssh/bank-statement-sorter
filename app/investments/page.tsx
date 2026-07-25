@@ -25,18 +25,8 @@ import {
 } from "@/components/investments/investments-client";
 import { AddTxnForm, ValuationEditor } from "@/components/investments/holdings-extras";
 import { AmfiFetchButton } from "@/components/investments/amfi-controls";
+import { InstrumentControls } from "@/components/investments/instrument-controls";
 import { getSetting } from "@/lib/repos/settings";
-
-const KIND_LABEL: Record<string, string> = {
-  mutual_fund: "MF",
-  stock: "Stock",
-  etf: "ETF",
-  ppf: "PPF",
-  epf: "EPF",
-  nps: "NPS",
-  bond: "Bond",
-  other: "Other",
-};
 
 export default function InvestmentsPage(props: PageProps<"/investments">) {
   return (
@@ -72,13 +62,16 @@ async function Content({
   await connection();
 
   const view = searchParams.view === "stocks" || searchParams.view === "all" ? searchParams.view : "mf";
+  const showHidden = getSetting<boolean>("show_hidden_investments", true);
   const allHoldings = listHoldings();
-  const holdings = allHoldings.filter((h) => {
+  // Hidden filter first (whole-portfolio concept), then the MF/stocks view.
+  const visibleHoldings = showHidden ? allHoldings : allHoldings.filter((h) => h.is_hidden === 0);
+  const holdings = visibleHoldings.filter((h) => {
     const isDematSide = h.instrument_kind === "stock" || h.instrument_kind === "etf";
     return view === "all" || (view === "stocks" ? isDematSide : !isDematSide);
   });
   const summary = portfolioSummary(holdings);
-  const goals = listGoals();
+  const goals = listGoals(visibleHoldings);
   const fds = listFixedDeposits();
   const sip = sipMonthStatus();
   const sips = sipTracker();
@@ -257,21 +250,22 @@ async function Content({
                 <Th className="text-right">P&L</Th>
                 <Th className="text-right">XIRR</Th>
                 <Th>Update</Th>
+                <Th>Manage</Th>
               </tr>
             </thead>
             <tbody>
               {holdings.map((h) => (
-                <tr key={h.fund_id}>
+                <tr key={h.fund_id} className={h.is_hidden === 1 ? "opacity-60" : ""}>
                   <Td className="max-w-64 truncate font-medium">
                     {h.name}
                     <span className="ml-1.5 inline-flex gap-1">
-                      <Badge tone="neutral">{KIND_LABEL[h.instrument_kind]}</Badge>
                       {h.is_elss === 1 ? <Badge tone="investment">ELSS</Badge> : null}
                       {h.is_observed ? (
                         <span title="Position observed from a statement (e-CAS) — no transactions imported, so cost and P&L are unknown">
                           <Badge tone="neutral">observed</Badge>
                         </span>
                       ) : null}
+                      {h.is_hidden === 1 ? <Badge tone="neutral">hidden</Badge> : null}
                     </span>
                   </Td>
                   <Td className="text-xs capitalize text-ink-secondary">
@@ -319,6 +313,15 @@ async function Content({
                     ) : (
                       <NavEditor fundId={h.fund_id} lastNav={h.last_nav} />
                     )}
+                  </Td>
+                  <Td>
+                    <InstrumentControls
+                      fundId={h.fund_id}
+                      kind={h.instrument_kind}
+                      isSipActive={h.is_sip_active === 1}
+                      sipAmountPaise={h.sip_amount_paise}
+                      isHidden={h.is_hidden === 1}
+                    />
                   </Td>
                 </tr>
               ))}

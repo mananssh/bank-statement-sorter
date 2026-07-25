@@ -142,6 +142,7 @@ const newInstrumentSchema = z.object({
   sub_category: z.string().max(60).optional(),
   is_elss: z.coerce.boolean().optional(),
   isin: z.string().max(20).optional(),
+  is_sip_active: z.coerce.boolean().optional(),
 });
 
 export async function addInstrumentAction(formData: FormData) {
@@ -156,12 +157,40 @@ export async function addInstrumentAction(formData: FormData) {
       is_elss: Boolean(parsed.data.is_elss),
       isin: parsed.data.isin || null,
       platform: null,
+      is_sip_active: Boolean(parsed.data.is_sip_active),
     });
     updateTag("investments");
     return { ok: true as const, id };
   } catch {
     return { ok: false as const, error: "An instrument with that name already exists." };
   }
+}
+
+const instrumentKindSchema = z.enum([
+  "mutual_fund", "stock", "etf", "ppf", "epf", "nps", "bond", "other",
+]);
+
+/** Reclassify an instrument (e.g. a Fund of Fund wrongly guessed as an ETF). */
+export async function updateInstrumentKindAction(fundId: number, kind: unknown) {
+  const parsed = instrumentKindSchema.safeParse(kind);
+  if (!parsed.success) return { ok: false as const, error: "Invalid kind." };
+  db().prepare(`UPDATE funds SET instrument_kind = ? WHERE id = ?`).run(parsed.data, fundId);
+  updateTag("investments");
+  return { ok: true as const };
+}
+
+/** Hide an instrument (e.g. a family/legacy demat holding) from the Investments page. */
+export async function setFundHiddenAction(fundId: number, hidden: boolean) {
+  db().prepare(`UPDATE funds SET is_hidden = ? WHERE id = ?`).run(hidden ? 1 : 0, fundId);
+  updateTag("investments");
+  return { ok: true as const };
+}
+
+/** Settings toggle: whether hidden instruments still show on the Investments page. */
+export async function toggleShowHiddenInvestmentsAction(show: boolean) {
+  setSetting("show_hidden_investments", show);
+  updateTag("investments");
+  return { ok: true as const };
 }
 
 /** Per-instrument SIP plan fields used by the target builder splits. */

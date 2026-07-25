@@ -206,6 +206,7 @@ export interface FundRow {
   symbol: string | null;
   sip_weight: number;
   sip_amount_paise: number | null;
+  is_hidden: number;
 }
 
 export interface AllocationTargetRow {
@@ -241,6 +242,7 @@ export interface HoldingRow {
   is_sip_active: number;
   sip_weight: number;
   sip_amount_paise: number | null;
+  is_hidden: number;
   txn_count: number;
   units: number;
   cost_basis_paise: number;

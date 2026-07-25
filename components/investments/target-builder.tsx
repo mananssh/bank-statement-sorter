@@ -366,6 +366,7 @@ function AddInstrumentCard() {
         }
         className="grid grid-cols-2 gap-2 md:grid-cols-6"
       >
+        <input type="hidden" name="is_sip_active" value="1" />
         <label className="col-span-2 flex flex-col gap-1 text-xs font-medium text-ink-secondary">
           Name
           <Input name="name" required placeholder="HDFC NIFTY 50 Index Direct Growth" />

@@ -186,9 +186,12 @@ export function elssStatus(fyStartYear: number, fyStartMonth: number): ElssStatu
   };
 }
 
-export function listGoals(): Array<GoalRow & { value_paise: number | null }> {
+/** Goal buckets are whole-portfolio splits — pass an already hidden-filtered
+ *  holdings list (not one further narrowed to a single MF/stocks view). */
+export function listGoals(
+  holdings: HoldingView[],
+): Array<GoalRow & { value_paise: number | null }> {
   const goals = db().prepare(`SELECT * FROM goals ORDER BY allocation_pct DESC`).all() as GoalRow[];
-  const holdings = listHoldings();
   const portfolio = holdings.reduce(
     (sum, h) => sum + (h.market_value_paise ?? h.cost_basis_paise),
     0,
