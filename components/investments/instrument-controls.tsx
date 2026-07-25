@@ -8,6 +8,7 @@ import {
   updateFundSipAction,
   updateInstrumentKindAction,
 } from "@/lib/actions/investments";
+import { Switch, cx } from "@/components/ui";
 import type { InstrumentKind } from "@/lib/db/types";
 
 const KIND_OPTIONS: Array<[InstrumentKind, string]> = [
@@ -21,8 +22,35 @@ const KIND_OPTIONS: Array<[InstrumentKind, string]> = [
   ["other", "Other"],
 ];
 
+function EyeIcon({ off, className }: { off?: boolean; className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      {off ? (
+        <>
+          <path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19" />
+          <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+          <line x1="1" y1="1" x2="23" y2="23" />
+        </>
+      ) : (
+        <>
+          <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z" />
+          <circle cx="12" cy="12" r="3" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 /**
- * Per-holding management row: reclassify kind (fixes the occasional wrong
+ * Per-holding management block: reclassify kind (fixes the occasional wrong
  * MF/ETF guess), mark as an active SIP with its monthly amount (so the SIP
  * tracker only shows what you actually opted in), and hide/unhide (for
  * holdings — e.g. a family/legacy demat position — you don't want cluttering
@@ -45,9 +73,10 @@ export function InstrumentControls({
   const [, startTransition] = useTransition();
   const [sipOn, setSipOn] = useState(isSipActive);
   const [amount, setAmount] = useState(sipAmountPaise !== null ? String(sipAmountPaise / 100) : "");
+  const [hidden, setHidden] = useState(isHidden);
 
   return (
-    <div className="flex flex-col gap-1 text-xs">
+    <div className="flex w-40 flex-col gap-1.5 rounded-lg border border-hairline bg-page/40 p-1.5">
       <select
         defaultValue={kind}
         onChange={(e) =>
@@ -56,7 +85,10 @@ export function InstrumentControls({
             router.refresh();
           })
         }
-        className="rounded border border-edge bg-transparent px-1 py-0.5 text-xs"
+        className={cx(
+          "w-full rounded-md border border-edge bg-surface px-1.5 py-1 text-xs font-medium text-ink",
+          "focus:border-accent focus:outline-none",
+        )}
       >
         {KIND_OPTIONS.map(([value, label]) => (
           <option key={value} value={value}>
@@ -65,12 +97,11 @@ export function InstrumentControls({
         ))}
       </select>
 
-      <label className="flex items-center gap-1 text-ink-secondary">
-        <input
-          type="checkbox"
+      <div className="flex items-center gap-1.5">
+        <Switch
+          size="sm"
           checked={sipOn}
-          onChange={(e) => {
-            const next = e.target.checked;
+          onChange={(next) => {
             setSipOn(next);
             startTransition(async () => {
               await updateFundSipAction(fundId, { is_sip_active: next });
@@ -78,7 +109,7 @@ export function InstrumentControls({
             });
           }}
         />
-        SIP
+        <span className="text-[11px] font-medium text-ink-secondary">SIP</span>
         {sipOn ? (
           <input
             value={amount}
@@ -91,22 +122,25 @@ export function InstrumentControls({
             }}
             placeholder="₹/mo"
             inputMode="decimal"
-            className="w-16 rounded border border-edge bg-transparent px-1 py-0.5 text-right tnum"
+            className="w-full min-w-0 rounded-md border border-edge bg-surface px-1.5 py-0.5 text-right text-xs tnum focus:border-accent focus:outline-none"
           />
         ) : null}
-      </label>
+      </div>
 
       <button
         type="button"
         onClick={() =>
           startTransition(async () => {
-            await setFundHiddenAction(fundId, !isHidden);
+            const next = !hidden;
+            setHidden(next);
+            await setFundHiddenAction(fundId, next);
             router.refresh();
           })
         }
-        className="text-left text-accent hover:underline"
+        className="inline-flex items-center gap-1 self-start text-[11px] font-medium text-ink-muted hover:text-ink"
       >
-        {isHidden ? "Unhide" : "Hide"}
+        <EyeIcon off={hidden} className="h-3 w-3" />
+        {hidden ? "Unhide" : "Hide"}
       </button>
     </div>
   );
@@ -115,20 +149,21 @@ export function InstrumentControls({
 /** Settings toggle: whether hidden instruments still show on the Investments page. */
 export function ShowHiddenInvestmentsToggle({ enabled }: { enabled: boolean }) {
   const router = useRouter();
+  const [checked, setChecked] = useState(enabled);
   const [pending, startTransition] = useTransition();
   return (
-    <label className="flex items-start gap-2 text-sm">
-      <input
-        type="checkbox"
-        defaultChecked={enabled}
+    <label className="flex items-start gap-2.5 text-sm">
+      <Switch
+        checked={checked}
         disabled={pending}
-        className="mt-0.5"
-        onChange={(e) =>
+        onChange={(next) => {
+          setChecked(next);
           startTransition(async () => {
-            await toggleShowHiddenInvestmentsAction(e.target.checked);
+            await toggleShowHiddenInvestmentsAction(next);
             router.refresh();
-          })
-        }
+          });
+        }}
+        className="mt-0.5"
       />
       <span>
         <span className="font-medium">Show hidden investments</span>

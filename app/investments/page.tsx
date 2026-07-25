@@ -61,7 +61,8 @@ async function Content({
   const searchParams = await searchParamsPromise;
   await connection();
 
-  const view = searchParams.view === "stocks" || searchParams.view === "all" ? searchParams.view : "mf";
+  const view =
+    searchParams.view === "stocks" || searchParams.view === "mf" ? searchParams.view : "all";
   const showHidden = getSetting<boolean>("show_hidden_investments", true);
   const allHoldings = listHoldings();
   // Hidden filter first (whole-portfolio concept), then the MF/stocks view.
@@ -106,7 +107,7 @@ async function Content({
         ).map(([key, label]) => (
           <Link
             key={key}
-            href={key === "mf" ? "/investments" : `/investments?view=${key}`}
+            href={key === "all" ? "/investments" : `/investments?view=${key}`}
             className={cx(
               "rounded-md px-2.5 py-1",
               view === key ? "bg-hairline font-medium text-ink" : "text-ink-secondary hover:text-ink",

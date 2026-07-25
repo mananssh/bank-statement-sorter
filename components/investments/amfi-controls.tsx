@@ -3,25 +3,26 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { fetchAmfiNavsAction, toggleAmfiAction } from "@/lib/actions/investments";
-import { Button, cx } from "@/components/ui";
+import { Button, Switch, cx } from "@/components/ui";
 
 /** Settings card control: the explicit opt-in for the app's only external call. */
 export function AmfiToggle({ enabled }: { enabled: boolean }) {
   const router = useRouter();
+  const [checked, setChecked] = useState(enabled);
   const [pending, startTransition] = useTransition();
   return (
-    <label className="flex items-start gap-2 text-sm">
-      <input
-        type="checkbox"
-        defaultChecked={enabled}
+    <label className="flex items-start gap-2.5 text-sm">
+      <Switch
+        checked={checked}
         disabled={pending}
-        className="mt-0.5"
-        onChange={(e) =>
+        onChange={(next) => {
+          setChecked(next);
           startTransition(async () => {
-            await toggleAmfiAction(e.target.checked);
+            await toggleAmfiAction(next);
             router.refresh();
-          })
-        }
+          });
+        }}
+        className="mt-0.5"
       />
       <span>
         <span className="font-medium">Fetch mutual-fund NAVs from AMFI</span>

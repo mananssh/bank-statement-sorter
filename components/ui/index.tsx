@@ -98,6 +98,49 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   );
 }
 
+/** Accessible on/off pill switch — the styled replacement for a raw checkbox. */
+export function Switch({
+  checked,
+  onChange,
+  disabled,
+  size = "md",
+  className,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  size?: "sm" | "md";
+  className?: string;
+}) {
+  const dims = size === "sm" ? "h-3.5 w-6" : "h-4.5 w-8";
+  const thumb = size === "sm" ? "h-2.5 w-2.5" : "h-3.5 w-3.5";
+  const travel = size === "sm" ? "peer-checked:translate-x-2.5" : "peer-checked:translate-x-3.5";
+  return (
+    <span className={cx("relative inline-flex shrink-0", dims, disabled && "opacity-50", className)}>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+        className="peer absolute inset-0 z-10 m-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+      />
+      <span
+        className={cx(
+          "absolute inset-0 rounded-full bg-hairline transition-colors duration-150",
+          "peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent/50",
+        )}
+      />
+      <span
+        className={cx(
+          "pointer-events-none absolute left-0.5 top-1/2 -translate-y-1/2 rounded-full bg-surface-raised shadow transition-transform duration-150",
+          thumb,
+          travel,
+        )}
+      />
+    </span>
+  );
+}
+
 export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
