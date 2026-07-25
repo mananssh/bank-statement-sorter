@@ -19,7 +19,7 @@ import { formatPaise } from "@/lib/domain/money";
 import { Badge, Card, CardTitle, EmptyState, Table, Th, Td, cx } from "@/components/ui";
 import {
   FdForm,
-  FdStatusButton,
+  FdRow,
   NavEditor,
   SipBudgetForm,
 } from "@/components/investments/investments-client";
@@ -386,19 +386,12 @@ async function Content({
                   <Th className="text-right">Rate</Th>
                   <Th>Matures</Th>
                   <Th>Status</Th>
+                  <Th>Actions</Th>
                 </tr>
               </thead>
               <tbody>
                 {fds.map((fd) => (
-                  <tr key={fd.id} className={fd.status !== "active" ? "opacity-50" : ""}>
-                    <Td className="font-medium tnum">…{fd.fd_number.slice(-6)}</Td>
-                    <Td className="text-right tnum">{formatPaise(fd.principal_paise)}</Td>
-                    <Td className="text-right tnum">{(fd.interest_rate_bp / 100).toFixed(2)}%</Td>
-                    <Td className="tnum">{fd.maturity_date}</Td>
-                    <Td>
-                      <FdStatusButton id={fd.id} status={fd.status} />
-                    </Td>
-                  </tr>
+                  <FdRow key={fd.id} fd={fd} />
                 ))}
               </tbody>
             </Table>

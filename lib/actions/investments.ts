@@ -67,6 +67,44 @@ export async function updateFdStatusAction(id: number, status: "active" | "matur
   return { ok: true as const };
 }
 
+export async function updateFdAction(id: number, formData: FormData) {
+  const parsed = fdSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { ok: false as const, error: "Check the FD details." };
+  const principal = parseAmountToPaise(parsed.data.principal);
+  if (!principal) return { ok: false as const, error: "Invalid principal amount." };
+  const maturityAmount = parsed.data.maturity_amount
+    ? parseAmountToPaise(parsed.data.maturity_amount)
+    : null;
+  try {
+    db()
+      .prepare(
+        `UPDATE fixed_deposits
+         SET fd_number = ?, principal_paise = ?, interest_rate_bp = ?,
+             start_date = ?, maturity_date = ?, maturity_amount_paise = ?
+         WHERE id = ?`,
+      )
+      .run(
+        parsed.data.fd_number,
+        principal,
+        Math.round(parsed.data.rate_pct * 100),
+        parsed.data.start_date,
+        parsed.data.maturity_date,
+        maturityAmount,
+        id,
+      );
+    updateTag("investments");
+    return { ok: true as const };
+  } catch {
+    return { ok: false as const, error: "Another FD with that number already exists." };
+  }
+}
+
+export async function deleteFdAction(id: number) {
+  db().prepare(`DELETE FROM fixed_deposits WHERE id = ?`).run(id);
+  updateTag("investments");
+  return { ok: true as const };
+}
+
 export async function updateSipBudgetAction(formData: FormData) {
   const budget = parseAmountToPaise(String(formData.get("budget") ?? ""));
   setSetting("sip_budget_paise", budget ?? null);
