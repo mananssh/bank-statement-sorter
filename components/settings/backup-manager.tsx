@@ -88,7 +88,8 @@ export function BackupManager({
                   {b.name}
                 </span>
                 <span className="tnum whitespace-nowrap text-xs text-ink-muted">
-                  {new Date(b.mtime).toLocaleString()} · {(b.size / 1024).toFixed(0)} KB
+                  {new Date(b.mtime).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}{" "}
+                  · {(b.size / 1024).toFixed(0)} KB
                 </span>
                 {confirming === b.name ? (
                   <span className="flex items-center gap-1.5">

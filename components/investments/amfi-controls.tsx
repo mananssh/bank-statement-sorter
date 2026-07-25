@@ -89,7 +89,8 @@ export function AmfiFetchButton({
         <span className={cx("text-xs", failed ? "text-danger" : "text-success")}>{message}</span>
       ) : lastFetch ? (
         <span className="text-xs text-ink-muted">
-          last fetched {new Date(lastFetch).toLocaleString()}
+          last fetched{" "}
+          {new Date(lastFetch).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
         </span>
       ) : null}
     </div>
