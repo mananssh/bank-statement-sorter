@@ -277,8 +277,15 @@ export function importNsdlCas(cas: NsdlCas): NsdlImportResult {
   const run = conn.transaction(() => {
     for (const h of cas.holdings) {
       if (!h.name && h.units === null) continue;
+      // A Fund of Fund is a mutual fund even when its own name says "ETF"
+      // (it invests in an ETF's units; it never itself trades on an exchange).
+      const isFof = /fund of fund|\bfofs?\b/i.test(h.name);
       const kind: InstrumentKind =
-        h.kind === "equity" ? "stock" : /\bETF\b|BEES\b/i.test(h.name) ? "etf" : "mutual_fund";
+        h.kind === "equity"
+          ? "stock"
+          : !isFof && /\bETF\b|BEES\b/i.test(h.name)
+            ? "etf"
+            : "mutual_fund";
       // NSDL names are truncated (often just the AMC) — never learn them as
       // aliases; ISIN identity carries the match.
       const { fundId, created } = resolveOrCreate(h.name || h.isin, h.isin, kind, "CAS", {
