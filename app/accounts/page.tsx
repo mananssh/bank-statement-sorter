@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import { connection } from "next/server";
 import { accountBalances } from "@/lib/repos/reports";
+import { listFyYears } from "@/lib/repos/lookups";
+import { fyStartMonth } from "@/lib/repos/settings";
 import { AccountManager } from "@/components/accounts/account-manager";
 
 export default function AccountsPage() {
@@ -21,5 +23,11 @@ export default function AccountsPage() {
 
 async function Content() {
   await connection();
-  return <AccountManager balances={accountBalances()} />;
+  return (
+    <AccountManager
+      balances={accountBalances()}
+      fyYears={listFyYears()}
+      fyStartMonthValue={fyStartMonth()}
+    />
+  );
 }

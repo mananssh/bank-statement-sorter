@@ -5,9 +5,18 @@ import { useRouter } from "next/navigation";
 import { createAccountAction } from "@/lib/actions/accounts";
 import { Badge, Button, Card, CardTitle, Input, Select, Table, Th, Td } from "@/components/ui";
 import { formatPaise } from "@/lib/domain/money";
+import { fyLabel } from "@/lib/domain/fy";
 import type { AccountBalance } from "@/lib/repos/reports";
 
-export function AccountManager({ balances }: { balances: AccountBalance[] }) {
+export function AccountManager({
+  balances,
+  fyYears,
+  fyStartMonthValue,
+}: {
+  balances: AccountBalance[];
+  fyYears: number[];
+  fyStartMonthValue: number;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +99,7 @@ export function AccountManager({ balances }: { balances: AccountBalance[] }) {
             <Th className="text-right">Books net flow</Th>
             <Th>Last activity</Th>
             <Th>Reconciliation</Th>
+            <Th>Export statement</Th>
           </tr>
         </thead>
         <tbody>
@@ -110,6 +120,27 @@ export function AccountManager({ balances }: { balances: AccountBalance[] }) {
               <Td className="tnum text-ink-secondary">{a.last_txn_date ?? "—"}</Td>
               <Td>
                 <ReconBadge a={a} />
+              </Td>
+              <Td>
+                <div className="flex flex-wrap gap-1 text-xs">
+                  {fyYears.slice(0, 3).map((y) => (
+                    <a
+                      key={y}
+                      href={`/api/export/account/${a.account_id}?fy=${y}`}
+                      download
+                      className="rounded-md border border-edge px-1.5 py-0.5 text-ink-secondary hover:bg-hairline"
+                    >
+                      {fyLabel(y, fyStartMonthValue)}
+                    </a>
+                  ))}
+                  <a
+                    href={`/api/export/account/${a.account_id}`}
+                    download
+                    className="rounded-md border border-edge px-1.5 py-0.5 text-ink-secondary hover:bg-hairline"
+                  >
+                    All
+                  </a>
+                </div>
               </Td>
             </tr>
           ))}
