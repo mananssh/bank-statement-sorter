@@ -46,17 +46,33 @@ function coreTokens(tokens: string[]): string[] {
   );
 }
 
-/** Parse NAVAll.txt lines: `Code;ISIN Payout;ISIN Reinvest;Name;NAV;Date`. */
+/**
+ * Parse NAVAll.txt. AMFI has shipped two layouts, so don't count columns from
+ * the left — NAV and Date are always the last two fields, and everything from
+ * field 3 up to them describes the scheme:
+ *
+ *   legacy (6):  Code;ISIN Payout;ISIN Reinvest;Name;NAV;Date
+ *   current (8): Code;ISIN Payout;ISIN Reinvest;Name;Plan;Option;NAV;Date
+ *
+ * The current layout lifted the plan/option qualifiers out of Scheme Name into
+ * columns of their own, so we join them back onto the name: the matcher below
+ * needs "DIRECT"/"GROWTH"/"IDCW" to be tokens of the row, as they used to be.
+ */
 export function parseNavAll(text: string, coerceDate: (raw: string) => string | null): AmfiRow[] {
   const rows: AmfiRow[] = [];
   for (const line of text.split("\n")) {
     const parts = line.split(";");
-    if (parts.length < 6) continue;
-    const nav = Number(parts[4]);
-    const date = coerceDate(parts[5].trim());
-    if (!Number.isFinite(nav) || nav <= 0 || !date) continue;
+    if (parts.length < 6) continue; // section + AMC heading lines carry no fields
+    const nav = Number(parts[parts.length - 2].trim());
+    const date = coerceDate(parts[parts.length - 1].trim());
+    if (!Number.isFinite(nav) || nav <= 0 || !date) continue; // also drops the header row
     const isins = [parts[1].trim(), parts[2].trim()].filter((i) => /^IN[A-Z0-9]{10}$/.test(i));
-    const name = parts[3].trim();
+    const name = parts
+      .slice(3, -2)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(" ");
+    if (!name) continue;
     rows.push({ isins, name, tokens: tokenize(name), nav, date });
   }
   return rows;

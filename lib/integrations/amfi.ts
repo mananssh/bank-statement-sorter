@@ -16,7 +16,9 @@ import { matchAmfiByName, parseNavAll, type AmfiRow } from "@/lib/integrations/a
  * to the fund, so future fetches are exact.
  */
 
-const AMFI_URL = "https://www.amfiindia.com/spages/NAVAll.txt";
+// www.amfiindia.com/spages/NAVAll.txt 302s here; hit the target directly so
+// the opt-in fetch stays one request to one host.
+const AMFI_URL = "https://portal.amfiindia.com/spages/NAVAll.txt";
 
 export interface AmfiFetchResult {
   updated: number;
@@ -36,8 +38,16 @@ export async function fetchAmfiNavs(): Promise<AmfiFetchResult> {
 
   const res = await fetch(AMFI_URL, { signal: AbortSignal.timeout(30_000), cache: "no-store" });
   if (!res.ok) throw new Error(`AMFI responded ${res.status}`);
-  const rows = parseNavAll(await res.text(), coerceDate);
-  if (rows.length === 0) throw new Error("AMFI response did not parse — format may have changed.");
+  const text = await res.text();
+  const rows = parseNavAll(text, coerceDate);
+  if (rows.length === 0) {
+    // Name the header we got: the last break was a column-layout change, and
+    // this is public market data, so it is safe (and much faster) to show it.
+    const header = text.split("\n", 1)[0].slice(0, 200).trim();
+    throw new Error(
+      `AMFI response did not parse — format may have changed. First line: ${header || "(empty)"}`,
+    );
+  }
 
   const byIsin = new Map<string, AmfiRow>();
   for (const r of rows) for (const i of r.isins) byIsin.set(i, r);
