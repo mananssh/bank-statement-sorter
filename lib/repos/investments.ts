@@ -7,7 +7,6 @@ import {
   type AllocationTargetRow,
   type FixedDepositRow,
   type FundRow,
-  type GoalRow,
   type HoldingRow,
 } from "@/lib/db/types";
 
@@ -184,22 +183,6 @@ export function elssStatus(fyStartYear: number, fyStartMonth: number): ElssStatu
     invested_fy_paise: row.n,
     months_left: monthsLeft,
   };
-}
-
-/** Goal buckets are whole-portfolio splits — pass an already hidden-filtered
- *  holdings list (not one further narrowed to a single MF/stocks view). */
-export function listGoals(
-  holdings: HoldingView[],
-): Array<GoalRow & { value_paise: number | null }> {
-  const goals = db().prepare(`SELECT * FROM goals ORDER BY allocation_pct DESC`).all() as GoalRow[];
-  const portfolio = holdings.reduce(
-    (sum, h) => sum + (h.market_value_paise ?? h.cost_basis_paise),
-    0,
-  );
-  return goals.map((g) => ({
-    ...g,
-    value_paise: portfolio > 0 ? Math.round((portfolio * g.allocation_pct) / 100) : null,
-  }));
 }
 
 export function listFixedDeposits(): FixedDepositRow[] {

@@ -32,6 +32,17 @@ export interface CategoryRow {
   is_active: number;
   notes: string | null;
   sort_order: number;
+  requires_bill_period: number;
+}
+
+export interface BillCoverageRow {
+  id: number;
+  txn_id: number;
+  cc_account_id: number;
+  period_from: string;
+  period_to: string;
+  allocated_paise: number;
+  created_at: string;
 }
 
 export interface PartyRow {
@@ -285,6 +296,10 @@ export interface InvoiceRow {
 export interface GoalRow {
   id: number;
   name: string;
-  allocation_pct: number;
+  /** ISO date; purchases before it are not attributed to this goal. */
+  start_date: string;
+  /** Share of the units of every SIP purchase made on or after start_date. */
+  sip_share_pct: number;
+  is_archived: number;
   notes: string | null;
 }

@@ -5,9 +5,12 @@ import {
   listAllocationTargets,
   listInstruments,
 } from "@/lib/repos/investments";
+import { goalAttribution } from "@/lib/repos/goals";
 import { fyStartMonth, getSetting } from "@/lib/repos/settings";
 import { fyStartYear } from "@/lib/domain/fy";
 import { TargetBuilder } from "@/components/investments/target-builder";
+import { GoalBuilder } from "@/components/investments/goal-builder";
+import { PlanTabs } from "@/components/investments/plan-tabs";
 
 export default function PlanPage() {
   return (
@@ -30,11 +33,19 @@ async function Content() {
   await connection();
   const startMonth = fyStartMonth();
   return (
-    <TargetBuilder
-      targets={listAllocationTargets()}
-      instruments={listInstruments()}
-      budgetPaise={getSetting<number | null>("sip_budget_paise", null)}
-      elss={elssStatus(fyStartYear(new Date().toISOString().slice(0, 10), startMonth), startMonth)}
+    <PlanTabs
+      allocation={
+        <TargetBuilder
+          targets={listAllocationTargets()}
+          instruments={listInstruments()}
+          budgetPaise={getSetting<number | null>("sip_budget_paise", null)}
+          elss={elssStatus(
+            fyStartYear(new Date().toISOString().slice(0, 10), startMonth),
+            startMonth,
+          )}
+        />
+      }
+      goals={<GoalBuilder attribution={goalAttribution()} />}
     />
   );
 }

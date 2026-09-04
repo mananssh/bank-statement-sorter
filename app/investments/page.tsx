@@ -5,7 +5,6 @@ import {
   allocationByClass,
   elssStatus,
   listFixedDeposits,
-  listGoals,
   listHoldings,
   listInstruments,
   listInvestmentFys,
@@ -13,6 +12,7 @@ import {
   sipMonthStatus,
   sipTracker,
 } from "@/lib/repos/investments";
+import { goalAttribution } from "@/lib/repos/goals";
 import { fyStartMonth } from "@/lib/repos/settings";
 import { fyLabel, fyStartYear } from "@/lib/domain/fy";
 import { formatPaise } from "@/lib/domain/money";
@@ -72,7 +72,7 @@ async function Content({
     return view === "all" || (view === "stocks" ? isDematSide : !isDematSide);
   });
   const summary = portfolioSummary(holdings);
-  const goals = listGoals(visibleHoldings);
+  const { goals, unassigned } = goalAttribution();
   const fds = listFixedDeposits();
   const sip = sipMonthStatus();
   const sips = sipTracker();
@@ -355,15 +355,31 @@ async function Content({
 
       {goals.length > 0 ? (
         <Card>
-          <CardTitle>Goal buckets</CardTitle>
+          <div className="mb-2 flex items-baseline justify-between gap-2">
+            <CardTitle>Goal buckets</CardTitle>
+            <Link href="/investments/plan" className="text-xs text-accent hover:underline">
+              edit goals
+            </Link>
+          </div>
           <div className="grid gap-2 md:grid-cols-4">
-            {goals.map((g) => (
+            {[
+              ...goals.filter((g) => g.is_archived === 0),
+              { id: 0, name: "Unassigned", ...unassigned, is_archived: 0 },
+            ].map((g) => (
               <div key={g.id} className="rounded-lg border border-hairline p-2.5">
-                <p className="text-xs font-medium text-ink-secondary">{g.name}</p>
+                <p className="truncate text-xs font-medium text-ink-secondary">{g.name}</p>
                 <p className="text-base font-semibold tnum">
                   {g.value_paise !== null ? formatPaise(g.value_paise, { compact: true }) : "—"}
                 </p>
-                <p className="text-xs text-ink-muted tnum">{g.allocation_pct}% of portfolio</p>
+                <p className="text-xs text-ink-muted tnum">
+                  {formatPaise(g.cost_paise, { compact: true })} in
+                  {g.pnl_paise !== null ? (
+                    <span className={cx("ml-1", g.pnl_paise >= 0 ? "text-credit" : "text-debit")}>
+                      {g.pnl_paise >= 0 ? "+" : ""}
+                      {formatPaise(g.pnl_paise, { compact: true })}
+                    </span>
+                  ) : null}
+                </p>
               </div>
             ))}
           </div>

@@ -36,7 +36,13 @@ exports — all on your machine, with zero external calls.
   month chips. FY start month is configurable (April for India, January for
   calendar-year countries).
 - **Investments** — fund holdings with manual NAV valuation and P&L, monthly SIP
-  budget progress, 80C/ELSS headroom tracker, goal buckets, fixed deposits.
+  budget progress, 80C/ELSS headroom tracker, fixed deposits, and a two-mode
+  **target builder**: by allocation (split an amount across asset classes and
+  instruments — what to buy) or by goal (each goal claims a share of the
+  *units* of every SIP purchase from its start date — who owns what you
+  bought). Attributing units rather than rupees makes each goal a real
+  sub-portfolio with its own invested amount, value and XIRR; shares need not
+  reach 100%, and the remainder stays visible as unassigned.
 - **CAS import** — feed it your CAMS/KFintech **detailed CAS** (full MF
   transaction history, broker-independent) and NSDL/CDSL **e-CAS** (demat
   stock/ETF positions + MF units cross-check) PDFs, via the Import page or a
@@ -133,6 +139,8 @@ Dev checks against real files (never committed):
 ```bash
 npx tsx scripts/dev-parse-check.ts <statement.xlsx>          # parsing stats
 npx tsx scripts/dev-cas-check.ts <cas.pdf> --password <pw>   # CAS parse (no DB)
+npx tsx scripts/dev-amfi-check.ts <NAVAll.txt>               # AMFI layout + name matching
+DATA_DIR=/tmp/goals NODE_OPTIONS=--conditions=react-server   npx tsx scripts/dev-goals-check.ts                         # goal attribution invariants
 DATA_DIR=/tmp/e2e NODE_OPTIONS=--conditions=react-server \
   npx tsx scripts/dev-e2e-check.ts <mastersheet> <statement> <sheet>  # full pipeline
 ```

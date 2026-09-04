@@ -4,7 +4,8 @@ import { db } from "@/lib/db/client";
 import { fyDateRange, fyLabel } from "@/lib/domain/fy";
 import { fyStartMonth } from "@/lib/repos/settings";
 import { categoryRollup, kpiSummary, monthlyRollup } from "@/lib/repos/reports";
-import { listFixedDeposits, listGoals, listHoldings } from "@/lib/repos/investments";
+import { listFixedDeposits, listHoldings } from "@/lib/repos/investments";
+import { goalAttribution } from "@/lib/repos/goals";
 
 /**
  * The clean FY workbook: one file per financial year, every sheet a proper
@@ -190,11 +191,22 @@ export async function buildFyWorkbook(fyStartYear: number): Promise<Buffer> {
       ]), { moneyCols: [5, 7] });
   }
 
-  const goals = listGoals(holdings);
+  const { goals, unassigned } = goalAttribution();
   if (goals.length) {
-    addTableSheet(wb, "Goals", ["Goal", "Allocation %", "Value"],
-      goals.map((g) => [g.name, g.allocation_pct, g.value_paise !== null ? g.value_paise / 100 : null]),
-      { moneyCols: [3] });
+    addTableSheet(wb, "Goals",
+      ["Goal", "Since", "SIP share %", "Invested", "Value", "Gain", "XIRR %"],
+      [
+        ...goals.map((g) => [
+          g.name, g.start_date, g.sip_share_pct, g.cost_paise / 100,
+          g.value_paise !== null ? g.value_paise / 100 : null,
+          g.pnl_paise !== null ? g.pnl_paise / 100 : null,
+          g.xirr_pct !== null ? Number(g.xirr_pct.toFixed(2)) : null,
+        ]),
+        ["Unassigned", null, null, unassigned.cost_paise / 100,
+          unassigned.value_paise !== null ? unassigned.value_paise / 100 : null,
+          unassigned.pnl_paise !== null ? unassigned.pnl_paise / 100 : null, null],
+      ],
+      { moneyCols: [4, 5, 6] });
   }
 
   const fds = listFixedDeposits();
